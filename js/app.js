@@ -232,21 +232,36 @@
     if (m.body === 'WIPE') return `*** ${fmtNum(st.settings.wipe_at_words)} words reached. Global chat and every group start over from a blank page. ***`;
     if (m.body === 'CREATED') return `★ ${who} created #${r ? r.name : 'this room'}`;
     if (m.body === 'JOINED') return `★ ${who} has entered #${r ? r.name : 'this room'} from ${hostFor(m.user_id)}`;
+    const target = nameOf(m.target_id);
+    if (m.body === 'PROMOTED') return `*** ${who} sets mode +o ${target} (now an admin)`;
+    if (m.body === 'DEMOTED') return m.user_id === m.target_id
+      ? `*** ${who} sets mode -o ${target} (stepped down)`
+      : `*** ${who} sets mode -o ${target} (now a regular)`;
+    if (m.body === 'BANNED') return `*** ${target} was banned by ${who}`;
+    if (m.body === 'UNBANNED') return `*** ${target} was unbanned by ${who}`;
     return `★ ${m.body}`;
   }
 
   function messageRow(m, flash) {
     const r = st.rooms.get(m.room_id);
     if (m.kind === 'system' || m.kind === 'local') {
-      const s = el('div', 'sys' + (m.body === 'WIPE' ? ' sys-wipe' : ''), m.kind === 'local' ? m.body : systemText(m, r));
-      return s;
+      const mode = { PROMOTED: ' sys-mode', DEMOTED: ' sys-mode', BANNED: ' sys-ban', UNBANNED: ' sys-mode', WIPE: ' sys-wipe' }[m.body] || '';
+      return el('div', 'sys' + (m.kind === 'local' ? '' : mode), m.kind === 'local' ? m.body : systemText(m, r));
     }
     const p = st.profiles.get(m.user_id);
     const row = el('div', 'msg');
-    if (p && p.is_admin) row.classList.add('is-op');
+    if (p && p.is_admin && !p.banned_at) row.classList.add('is-op');
     if (flash) row.classList.add('flash');
     const who = el('div', 'who');
-    const name = el('span', 'name', p ? p.username : 'someone');
+    let name;
+    if (p) {
+      name = el('button', 'name', p.username);
+      name.type = 'button';
+      name.title = m.user_id === st.meId ? 'You' : `${p.username}: add friend, profile`;
+      name.addEventListener('click', () => openPerson(m.user_id));
+    } else {
+      name = el('span', 'name', 'someone');
+    }
     name.style.color = colorOf(m.user_id);
     const words = m.word_count || 0;
     const meta = el('span', 'meta', `${fmtTime(m.created_at)} | ${m.kind === 'image' ? 'image' + (words ? ` + ${words} word${words === 1 ? '' : 's'}` : '') : `${words} word${words === 1 ? '' : 's'}`}`);
@@ -394,6 +409,7 @@
       renderStatus();
       markActive();
     } catch (e) {
+      if (PZ.errorCode(e) === 'BANNED') return showBanned();
       note(PZ.friendlyError(e), 'error');
     } finally {
       renderComposer();
@@ -436,8 +452,10 @@
     const ids = [...st.profiles.keys()];
     const incoming = [...st.requests.values()].filter((r) => r.status === 'pending' && r.to_user === st.meId && st.profiles.has(r.from_user));
     const rank = { typing: 0, online: 0, away: 1, offline: 2 };
-    const byPresence = (a, b) => (rank[presenceOf(a).state] - rank[presenceOf(b).state]) || nameOf(a).localeCompare(nameOf(b));
-    const ops = ids.filter((id) => st.profiles.get(id).is_admin).sort(byPresence);
+    const banned = (id) => !!st.profiles.get(id).banned_at;
+    const isOp = (id) => st.profiles.get(id).is_admin && !banned(id);
+    const byPresence = (a, b) => (banned(a) - banned(b)) || (rank[presenceOf(a).state] - rank[presenceOf(b).state]) || nameOf(a).localeCompare(nameOf(b));
+    const ops = ids.filter(isOp).sort((a, b) => (st.profiles.get(b).is_owner - st.profiles.get(a).is_owner) || byPresence(a, b));
 
     let dmUnread = 0;
     for (const r of st.rooms.values()) if (r.kind === 'dm') dmUnread += st.unread.get(r.id) || 0;
@@ -449,7 +467,7 @@
 
     ops.forEach((id) => list.append(personRow(id)));
     if (st.peopleTab === 'all') {
-      ids.filter((id) => !st.profiles.get(id).is_admin).sort(byPresence).forEach((id) => list.append(personRow(id)));
+      ids.filter((id) => !isOp(id)).sort(byPresence).forEach((id) => list.append(personRow(id)));
     } else {
       if (incoming.length) {
         const banner = el('div', 'req-banner');
@@ -457,7 +475,7 @@
         list.append(banner);
         incoming.forEach((r) => list.append(personRow(r.from_user, r)));
       }
-      const friends = ids.filter((id) => !st.profiles.get(id).is_admin && relation(id).kind === 'friends').sort(byPresence);
+      const friends = ids.filter((id) => !isOp(id) && relation(id).kind === 'friends').sort(byPresence);
       friends.forEach((id) => list.append(personRow(id)));
       if (!friends.length && !incoming.length) {
         list.append(el('p', 'people-empty', 'No friends yet. Press "+ Add Friend" next to someone in ALL. They have to accept before you can chat.'));
@@ -465,30 +483,56 @@
     }
   }
 
+  function statusLine(id) {
+    const p = st.profiles.get(id);
+    const pr = presenceOf(id);
+    if (p.banned_at) return el('span', 'person-status is-banned', '✕ banned');
+    return el('span', 'person-status is-' + pr.state,
+      pr.state === 'typing' ? '● typing...' : pr.state === 'online' ? (p.is_admin ? '● moderating' : '● online') : pr.state === 'away' ? '○ away' : 'offline');
+  }
+
+  function metaLine(id) {
+    const p = st.profiles.get(id);
+    const pr = presenceOf(id);
+    const bits = [p.modem === 'T1' ? 'T1 line' : p.modem];
+    if (p.status_text) bits.push(p.status_text);
+    if (pr.state !== 'offline' && !p.banned_at) bits.push(`${pr.idleMin} min idle`);
+    return bits.join(' • ');
+  }
+
+  function tagEls(id) {
+    const p = st.profiles.get(id);
+    const out = [];
+    if (p.banned_at) out.push(el('span', 'ban-tag', '[BANNED]'));
+    else if (p.is_admin) { const t = el('span', 'op-tag', '[OP]'); if (p.is_owner) t.title = 'Founder'; out.push(t); }
+    if (id === st.meId) out.push(el('span', 'you-tag', '(you)'));
+    return out;
+  }
+
   function personRow(id, incomingReq) {
     const p = st.profiles.get(id);
     const pr = presenceOf(id);
     const rel = id === st.meId ? { kind: 'me' } : relation(id);
-    const row = el('div', 'person' + (p.is_admin ? ' is-op' : '') + (pr.state === 'offline' ? ' is-offline' : ''));
+    const row = el('div', 'person' + (p.is_admin && !p.banned_at ? ' is-op' : '') +
+      (pr.state === 'offline' ? ' is-offline' : '') + (p.banned_at ? ' is-banned' : ''));
+    const main = el('button', 'person-main');
+    main.type = 'button';
+    main.title = `${p.username}: profile${id === st.meId ? '' : ', friend'}${me() && me().is_admin ? ', admin tools' : ''}`;
+    main.addEventListener('click', () => openPerson(id));
     const av = avatar(id, 'avatar-lg');
-    const info = el('div', 'person-info');
-    const top = el('div', 'person-top');
+    const info = el('span', 'person-info');
+    const top = el('span', 'person-top');
     const name = el('span', 'person-name', p.username);
     name.style.color = colorOf(id);
-    top.append(name);
-    if (p.is_admin) top.append(el('span', 'op-tag', '[OP]'));
-    if (id === st.meId) top.append(el('span', 'you-tag', '(you)'));
-    const status = el('div', 'person-status is-' + pr.state,
-      pr.state === 'typing' ? '● typing...' : pr.state === 'online' ? (p.is_admin ? '● moderating' : '● online') : pr.state === 'away' ? '○ away' : 'offline');
-    const bits = [p.modem === 'T1' ? 'T1 line' : p.modem];
-    if (p.status_text) bits.push(p.status_text);
-    if (pr.state !== 'offline') bits.push(`${pr.idleMin} min idle`);
-    const meta = el('div', 'person-meta', bits.join(' • '));
-    info.append(top, status, meta);
-    row.append(av, info);
+    top.append(name, ...tagEls(id));
+    info.append(top, statusLine(id), el('span', 'person-meta', metaLine(id)));
+    main.append(av, info);
+    row.append(main);
 
     const act = el('div', 'person-act');
-    if (incomingReq) {
+    if (p.banned_at) {
+      // no friend actions for banned people
+    } else if (incomingReq) {
       const acc = el('button', 'btn btn-sm', '✓ Accept');
       acc.type = 'button';
       acc.addEventListener('click', () => respond(incomingReq.id, true));
@@ -519,8 +563,8 @@
     return row;
   }
 
-  async function addFriend(id, btn) {
-    btn.disabled = true;
+  async function addFriend(id, btn, rethrow) {
+    if (btn) btn.disabled = true;
     try {
       const res = await backend.sendFriendRequest(id);
       if (res === 'SENT' || res === 'ALREADY_SENT') {
@@ -528,10 +572,14 @@
       }
       if (res === 'ACCEPTED') await refreshSocial();
       renderPeople();
-    } catch (e) { btn.disabled = false; note(PZ.friendlyError(e), 'error'); }
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      if (rethrow) throw e;
+      note(PZ.friendlyError(e), 'error');
+    }
   }
 
-  async function respond(reqId, accept) {
+  async function respond(reqId, accept, rethrow) {
     try {
       const roomId = await backend.respondFriendRequest(reqId, accept);
       const r = st.requests.get(reqId);
@@ -539,7 +587,10 @@
       if (accept) await refreshSocial();
       renderPeople();
       if (roomId && st.rooms.has(roomId)) note(`You're friends with ${nameOf(r && r.from_user)} now. Press Chat to talk.`, 'ok');
-    } catch (e) { note(PZ.friendlyError(e), 'error'); }
+    } catch (e) {
+      if (rethrow) throw e;
+      note(PZ.friendlyError(e), 'error');
+    }
   }
 
   // Friend changes create rooms and memberships; reload them in one go.
@@ -553,6 +604,144 @@
       d.friendRequests.forEach((r) => st.requests.set(r.id, r));
       renderRooms();
     } catch (_) { /* next realtime event will catch up */ }
+  }
+
+  // ---------------------------------------------------------------- member card
+  function openPerson(id) {
+    if (!st.profiles.has(id)) return;
+    st.cardId = id;
+    st.cardConfirm = null;
+    $('pc-error').hidden = true;
+    renderPersonCard();
+    const d = $('dlg-person');
+    if (!d.open) d.showModal();
+  }
+
+  function cardButton(label, cls, onClick) {
+    const b = el('button', 'btn btn-sm ' + (cls || ''), label);
+    b.type = 'button';
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  async function cardAction(fn) {
+    $('pc-error').hidden = true;
+    $('dlg-person').querySelectorAll('.pc-actions button').forEach((b) => { b.disabled = true; });
+    try { await fn(); }
+    catch (e) { $('pc-error').textContent = PZ.friendlyError(e); $('pc-error').hidden = false; }
+    st.cardConfirm = null;
+    renderPeople();
+    renderPersonCard();
+  }
+
+  function renderPersonCard() {
+    const d = $('dlg-person');
+    const id = st.cardId;
+    const p = id && st.profiles.get(id);
+    if (!p) { if (d.open) d.close(); return; }
+    const mine = me();
+    const isMe = id === st.meId;
+    const first = p.username[0] ? p.username[0].toUpperCase() : '?';
+
+    const av = $('pc-avatar');
+    av.textContent = first;
+    av.style.background = colorOf(id);
+    $('pc-name').textContent = p.username;
+    $('pc-name').style.color = colorOf(id);
+    const tags = $('pc-tags');
+    tags.textContent = '';
+    tags.append(...tagEls(id));
+    const st1 = $('pc-status');
+    st1.textContent = '';
+    st1.append(statusLine(id));
+    $('pc-meta').textContent = metaLine(id);
+
+    // Friendship
+    const acts = $('pc-actions');
+    acts.textContent = '';
+    const rel = $('pc-rel');
+    if (isMe) {
+      rel.textContent = p.is_owner ? 'This is you, the founder of this chatroom.' : 'This is you.';
+      acts.append(cardButton('Edit profile', 'btn-dark', () => { $('dlg-person').close(); openProfileDialog(); }));
+    } else if (p.banned_at) {
+      rel.textContent = "Banned. They can't read or post until an admin unbans them.";
+    } else {
+      const r = relation(id);
+      if (r.kind === 'friends') {
+        rel.textContent = "You're friends.";
+        const dm = dmRoomWith(id);
+        acts.append(cardButton('Open chat', '', () => { $('dlg-person').close(); if (dm) { openRoom(dm.id); closeOverlays(); } }));
+      } else if (r.kind === 'incoming') {
+        rel.textContent = `${p.username} sent you a friend request.`;
+        acts.append(
+          cardButton('✓ Accept', '', () => cardAction(() => respond(r.req.id, true, true))),
+          cardButton('Decline', 'btn-dark', () => cardAction(() => respond(r.req.id, false, true))));
+      } else if (r.kind === 'outgoing') {
+        rel.textContent = `Friend request sent. Waiting for ${p.username} to accept.`;
+      } else {
+        rel.textContent = 'Friends get a private chat with longer messages. They have to accept your request first.';
+        acts.append(cardButton('+ Add Friend', '', () => cardAction(() => addFriend(id, null, true))));
+      }
+    }
+
+    // Admin tools
+    const box = $('pc-admin');
+    const amAdmin = !!(mine && mine.is_admin && !mine.banned_at);
+    box.hidden = !amAdmin;
+    if (!amAdmin) return;
+    const aa = $('pc-admin-actions');
+    aa.textContent = '';
+    const hint = $('pc-admin-hint');
+    hint.textContent = '';
+    if (p.is_owner) {
+      hint.textContent = isMe ? "You're the founder. Nobody can demote or ban you." : 'The founder. Nobody can demote or ban them.';
+    } else if (isMe) {
+      if (st.cardConfirm === 'stepdown') {
+        hint.textContent = "Step down to regular? Only another admin can make you an admin again.";
+        aa.append(cardButton('Cancel', 'btn-dark', () => { st.cardConfirm = null; renderPersonCard(); }),
+          cardButton('Yes, step down', 'btn-danger', () => cardAction(() => setAdmin(id, false))));
+      } else {
+        aa.append(cardButton('Step down to regular', 'btn-dark', () => { st.cardConfirm = 'stepdown'; renderPersonCard(); }));
+      }
+    } else if (st.cardConfirm === 'ban') {
+      hint.textContent = `Ban ${p.username}? They lose access right away. Everyone will see it in Global chat.`;
+      aa.append(cardButton('Cancel', 'btn-dark', () => { st.cardConfirm = null; renderPersonCard(); }),
+        cardButton('Yes, ban', 'btn-danger', () => cardAction(() => banUser(id, true))));
+    } else if (p.banned_at) {
+      aa.append(cardButton('Unban', '', () => cardAction(() => banUser(id, false))));
+    } else {
+      aa.append(p.is_admin
+        ? cardButton('Make regular', 'btn-dark', () => cardAction(() => setAdmin(id, false)))
+        : cardButton('Make admin', '', () => cardAction(() => setAdmin(id, true))));
+      const ban = cardButton('Ban', 'btn-danger', () => { st.cardConfirm = 'ban'; renderPersonCard(); });
+      if (p.is_admin) { ban.disabled = true; hint.textContent = 'Make them a regular first if you need to ban them.'; }
+      aa.append(ban);
+    }
+  }
+
+  async function setAdmin(id, admin) {
+    await backend.setAdmin(id, admin);
+    const p = st.profiles.get(id);
+    if (p) p.is_admin = admin;
+  }
+
+  async function banUser(id, ban) {
+    await backend.banUser(id, ban);
+    const p = st.profiles.get(id);
+    if (p) p.banned_at = ban ? new Date().toISOString() : null;
+    if (ban) {
+      for (const [k, r] of st.requests) if (r.status === 'pending' && (r.from_user === id || r.to_user === id)) st.requests.delete(k);
+    }
+  }
+
+  function showBanned() {
+    entered = false;
+    ['toolbar', 'main', 'signon'].forEach((x) => { $(x).hidden = true; });
+    document.querySelectorAll('dialog[open]').forEach((d) => d.close());
+    $('banned').hidden = false;
+    $('sb-conn').textContent = 'NO CARRIER';
+    $('sb-words').textContent = '';
+    $('sb-you').hidden = true;
   }
 
   function addMember(roomId, userId) {
@@ -730,6 +919,7 @@
     $('toolbar').hidden = true;
     $('main').hidden = true;
     $('signon').hidden = false;
+    $('banned').hidden = true;
     $('sb-you').hidden = true;
     $('sb-conn').textContent = backend.mode === 'demo' ? 'Demo mode: any email and password will do.' : 'Not connected';
     $('sb-words').textContent = '';
@@ -768,6 +958,9 @@
     if (entered && st.meId === id) return;
     entered = true;
     st.meId = id;
+    let self = null;
+    try { self = await backend.loadSelf(); } catch (_) { /* loadAll below reports errors */ }
+    if (self && self.banned_at) return showBanned();
     let d;
     try { d = await backend.loadAll(); } catch (e) { entered = false; return showSignOn(PZ.friendlyError(e)); }
     st.profiles.clear(); d.profiles.forEach((p) => st.profiles.set(p.id, p));
@@ -789,7 +982,13 @@
     const g = globalRoom();
     backend.subscribe({
       message: addMessage,
-      profile: (p) => { st.profiles.set(p.id, Object.assign(st.profiles.get(p.id) || {}, p)); renderPeople(); renderStatus(); if (p.id === st.meId) renderComposer(); },
+      profile: (p) => {
+        st.profiles.set(p.id, Object.assign(st.profiles.get(p.id) || {}, p));
+        if (p.id === st.meId && p.banned_at) return showBanned();
+        renderPeople(); renderStatus();
+        if (p.id === st.meId) renderComposer();
+        if ($('dlg-person').open) renderPersonCard();
+      },
       room: (r) => { st.rooms.set(r.id, r); renderRooms(); renderPeople(); },
       membership: (op, m) => {
         if (op === 'add') addMember(m.room_id, m.user_id);
@@ -799,8 +998,9 @@
       friendRequest: (r) => {
         for (const [k, v] of st.requests) if (String(k).startsWith('local-') && v.to_user === r.to_user && v.from_user === r.from_user) st.requests.delete(k);
         st.requests.set(r.id, r);
-        if (r.status === 'accepted') refreshSocial().then(renderPeople);
+        if (r.status === 'accepted') refreshSocial().then(() => { renderPeople(); if ($('dlg-person').open) renderPersonCard(); });
         renderPeople();
+        if ($('dlg-person').open) renderPersonCard();
       },
       settings: (s) => { st.settings = Object.assign(st.settings, s); renderStatus(); renderComposer(); },
       presence: onPresence,
@@ -913,6 +1113,9 @@
         $('prof-error').textContent = PZ.friendlyError(err);
         $('prof-error').hidden = false;
       }
+    });
+    $('btn-banned-signout').addEventListener('click', async () => {
+      try { await backend.signOut(); } finally { location.reload(); }
     });
     $('btn-signout').addEventListener('click', async () => {
       $('dlg-profile').close();

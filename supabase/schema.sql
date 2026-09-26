@@ -43,12 +43,18 @@ create table public.profiles (
   modem              text not null default '56k'
                        check (modem in ('14.4k','28.8k','33.6k','56k','ISDN','cable','T1')),
   status_text        text not null default '' check (char_length(status_text) <= 40),
-  is_admin           boolean not null default false,
+  is_admin           boolean not null default false,   -- shown as [OP]
+  is_owner           boolean not null default false,   -- the founder: first account, can't be demoted or banned
+  banned_at          timestamptz,                      -- set = locked out of everything
+  banned_by          uuid references public.profiles(id) on delete set null,
   muted_until        timestamptz,
   image_locked_until timestamptz,
-  created_at         timestamptz not null default now()
+  created_at         timestamptz not null default now(),
+  check (not is_owner or is_admin),
+  check (not is_owner or banned_at is null)
 );
 create unique index profiles_username_ci on public.profiles (lower(username));
+create unique index profiles_one_owner   on public.profiles (is_owner) where is_owner;
 
 create table public.invites (
   code       text primary key,
@@ -85,6 +91,7 @@ create table public.messages (
   id         bigint generated always as identity primary key,
   room_id    uuid not null references public.rooms(id) on delete cascade,
   user_id    uuid references public.profiles(id) on delete set null,
+  target_id  uuid references public.profiles(id) on delete set null,  -- who an admin action was about
   kind       text not null default 'text' check (kind in ('text','image','system')),
   body       text not null default '',
   image_path text,
@@ -128,9 +135,15 @@ language sql immutable as $$
           '[\s\u00a0\u1680\u2000-\u200b\u2028\u2029\u202f\u205f\u3000\ufeff]+', ' ', 'g')) as n) s
 $$;
 
+-- A member is someone with a profile who is not banned.
 create function public.is_member() returns boolean
 language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.profiles where id = auth.uid())
+  select exists (select 1 from public.profiles where id = auth.uid() and banned_at is null)
+$$;
+
+create function public.am_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.profiles where id = auth.uid() and is_admin and banned_at is null)
 $$;
 
 create function public.can_read_room(p_room uuid) returns boolean
@@ -152,6 +165,7 @@ language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.profiles
     where id = auth.uid()
+      and banned_at is null
       and (image_locked_until is null or image_locked_until <= now())
       and (muted_until        is null or muted_until        <= now())
   )
@@ -183,10 +197,10 @@ begin
 
   select not exists (select 1 from public.profiles) into v_first;
 
-  insert into public.profiles (id, username, color, is_admin)
+  insert into public.profiles (id, username, color, is_admin, is_owner)
   values (new.id, v_username,
           case when v_first then '#e02020' else v_colors[1 + floor(random() * array_length(v_colors, 1))::int] end,
-          v_first);
+          v_first, v_first);
 
   update public.invites set used_by = new.id, used_at = now() where code = v_code;
   return new;
@@ -240,6 +254,7 @@ begin
   -- Lock this person's row so two fast sends are checked one after the other.
   select * into v_prof from public.profiles where id = v_uid for update;
   if not found then raise exception 'NOT_A_MEMBER'; end if;
+  if v_prof.banned_at is not null then raise exception 'BANNED'; end if;
 
   select * into v_room from public.rooms where id = p_room;
   if not found then raise exception 'ROOM_NOT_FOUND'; end if;
@@ -401,6 +416,7 @@ begin
   if not public.is_member() then raise exception 'NOT_A_MEMBER'; end if;
   if p_to = v_uid then raise exception 'NOT_YOURSELF'; end if;
   if not exists (select 1 from public.profiles where id = p_to) then raise exception 'USER_NOT_FOUND'; end if;
+  if exists (select 1 from public.profiles where id = p_to and banned_at is not null) then raise exception 'USER_BANNED'; end if;
 
   select * into v_req from public.friend_requests
    where least(from_user, to_user) = least(v_uid, p_to)
@@ -437,9 +453,13 @@ declare
   v_key  text;
   v_room uuid;
 begin
+  if not public.is_member() then raise exception 'NOT_A_MEMBER'; end if;
   select * into v_req from public.friend_requests where id = p_id for update;
   if not found or v_req.to_user <> auth.uid() or v_req.status <> 'pending' then
     raise exception 'REQUEST_NOT_FOUND';
+  end if;
+  if p_accept and exists (select 1 from public.profiles where id = v_req.from_user and banned_at is not null) then
+    raise exception 'USER_BANNED';
   end if;
 
   if not p_accept then
@@ -461,6 +481,65 @@ end $$;
 
 
 -- ---------------------------------------------------------------------------
+-- 5b. Admin tools. Every change is announced in Global chat, IRC style.
+--   Errors: NOT_ADMIN, USER_NOT_FOUND, CANNOT_CHANGE_OWNER, USER_BANNED,
+--           NOT_YOURSELF, DEMOTE_FIRST
+-- ---------------------------------------------------------------------------
+
+-- Make someone an admin ([OP]) or a regular again. Admins may step down
+-- themselves. Nobody can demote the founder.
+create function public.set_admin(p_user uuid, p_admin boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_t      public.profiles%rowtype;
+  v_global uuid;
+begin
+  if not public.am_admin() then raise exception 'NOT_ADMIN'; end if;
+  select * into v_t from public.profiles where id = p_user for update;
+  if not found then raise exception 'USER_NOT_FOUND'; end if;
+  if v_t.is_owner then raise exception 'CANNOT_CHANGE_OWNER'; end if;
+  if p_admin and v_t.banned_at is not null then raise exception 'USER_BANNED'; end if;
+  if v_t.is_admin = p_admin then return; end if;
+
+  update public.profiles set is_admin = p_admin where id = p_user;
+  select id into v_global from public.rooms where kind = 'global';
+  insert into public.messages (room_id, user_id, target_id, kind, body)
+  values (v_global, auth.uid(), p_user, 'system', case when p_admin then 'PROMOTED' else 'DEMOTED' end);
+end $$;
+
+
+-- Ban (p_ban = true) or unban someone. A banned person can't read, post,
+-- upload, invite or friend anyone until unbanned. Admins must be made
+-- regulars before they can be banned, and the founder can never be banned.
+create function public.ban_user(p_user uuid, p_ban boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_t      public.profiles%rowtype;
+  v_global uuid;
+begin
+  if not public.am_admin() then raise exception 'NOT_ADMIN'; end if;
+  if p_user = auth.uid() then raise exception 'NOT_YOURSELF'; end if;
+  select * into v_t from public.profiles where id = p_user for update;
+  if not found then raise exception 'USER_NOT_FOUND'; end if;
+  if v_t.is_owner then raise exception 'CANNOT_CHANGE_OWNER'; end if;
+  if (v_t.banned_at is not null) = p_ban then return; end if;
+
+  if p_ban then
+    if v_t.is_admin then raise exception 'DEMOTE_FIRST'; end if;
+    update public.profiles set banned_at = now(), banned_by = auth.uid() where id = p_user;
+    delete from public.invites where created_by = p_user and used_by is null;
+    delete from public.friend_requests where status = 'pending' and (from_user = p_user or to_user = p_user);
+  else
+    update public.profiles set banned_at = null, banned_by = null where id = p_user;
+  end if;
+
+  select id into v_global from public.rooms where kind = 'global';
+  insert into public.messages (room_id, user_id, target_id, kind, body)
+  values (v_global, auth.uid(), p_user, 'system', case when p_ban then 'BANNED' else 'UNBANNED' end);
+end $$;
+
+
+-- ---------------------------------------------------------------------------
 -- 6. Row Level Security: who can READ what. Nobody may write directly.
 -- ---------------------------------------------------------------------------
 alter table public.settings        enable row level security;
@@ -478,9 +557,13 @@ create policy "members read settings" on public.settings
 create policy "members read profiles" on public.profiles
   for select to authenticated using (public.is_member());
 
+-- Even a banned person can read their own profile, so the page can tell them.
+create policy "read own profile" on public.profiles
+  for select to authenticated using (id = auth.uid());
+
 -- People may edit only their own name, color, modem and status line.
 create policy "edit own profile" on public.profiles
-  for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
+  for update to authenticated using (id = auth.uid() and public.is_member()) with check (id = auth.uid());
 revoke update on public.profiles from authenticated, anon;
 grant update (username, color, modem, status_text) on public.profiles to authenticated;
 
@@ -516,7 +599,8 @@ grant  execute on function public.check_signup(text, text) to anon, authenticate
 grant  execute on function public.count_words(text), public.is_member(), public.can_read_room(uuid),
          public.can_upload_image(), public.send_message(uuid, text, text), public.create_group(text, text),
          public.join_room(uuid), public.leave_room(uuid), public.create_invite(),
-         public.send_friend_request(uuid), public.respond_friend_request(bigint, boolean)
+         public.send_friend_request(uuid), public.respond_friend_request(bigint, boolean),
+         public.am_admin(), public.set_admin(uuid, boolean), public.ban_user(uuid, boolean)
   to authenticated;
 
 

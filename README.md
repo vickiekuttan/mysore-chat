@@ -17,11 +17,20 @@ These are enforced by the database itself (`supabase/schema.sql`), so nobody can
 | Friends | Send a request, the other person accepts, then you get a private chat. Up to 200 words per message, no images |
 | Joining | Invite code only. Every member can make up to 5 unused codes at a time |
 
+## Friends, admins and bans
+
+- **Click any username** (in Global chat, a group, or the people list) to open their member card. From there you can send a friend request, accept one, or open your private chat.
+- **Admins** show as **[OP]**. The first account ever created is the **founder**: an admin nobody can demote or ban.
+- **Admins can:** make someone an admin, make an admin a regular again (including stepping down themselves), ban and unban. These buttons appear on the member card under **Admin tools**.
+- **A ban** locks the person out right away: they can't read, post, upload, invite or send friend requests. Their unused invite codes and pending friend requests are deleted. An admin can unban them at any time.
+- **Admins can't be banned directly.** Make them a regular first. The founder can never be banned.
+- **Every admin action is announced** in Global chat, IRC style: `*** ADMIN_Jen sets mode +o cyberSuze (now an admin)`.
+
 Every number above lives in the `settings` table. Change it there (Supabase > Table Editor > settings) and it takes effect immediately, no code change.
 
 ## Try it without setting anything up
 
-Download the repo and double-click `index.html`. With no Supabase details in `js/config.js`, it runs in **demo mode**: pretend people, pretend messages, the same rules, nothing saved.
+Download the repo and double-click `index.html`. With no Supabase details in `js/config.js`, it runs in **demo mode**: pretend people, pretend messages, the same rules, nothing saved. In the demo you are the founder, so you can try every admin tool.
 
 ## Put it online (about 30 minutes, no coding)
 
@@ -73,13 +82,13 @@ Checked against [supabase.com/pricing](https://supabase.com/pricing) in Septembe
 
 - **Images are not deleted by the big wipe.** Files in Supabase Storage can't be removed from inside the database, so the wipe lists them in the `orphaned_images` table instead. Delete them from **Storage** > `chat-images` now and then, or storage will eventually fill up. Automating this (with a Supabase Edge Function) is a good first contribution.
 - **Who is online is not private.** "Online" and "typing" signals use a Supabase Realtime channel that anyone holding the public key could listen to. They carry only random account IDs and room IDs, never names or messages.
-- **The OP badge is cosmetic for now.** There are no moderation tools yet (deleting messages, muting people, removing groups).
-- **Nobody can delete a group** in this version.
+- **Bans are per account, not per person.** A banned person could come back with a new email if someone gives them a fresh invite code.
+- **No message deleting yet.** Admins can ban people but can't remove individual messages or groups.
 - A "word" is any run of characters between spaces, so `a-b-c-d` counts as one word.
 
 ## Check the rules yourself
 
-The database rules come with 64 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
+The database rules come with 92 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
 
 ```bash
 npm install

@@ -72,6 +72,18 @@
     </div>
   </main>
 
+  <!-- Banned screen -->
+  <main class="signon" id="banned" hidden>
+    <div class="window">
+      <div class="window-title window-title-red">*** You have been banned ***</div>
+      <div class="window-body">
+        <p>An admin has banned this account from Pazhampori chat. You can't read or send messages until an admin unbans you.</p>
+        <p class="modem-line">NO CARRIER</p>
+        <button class="btn btn-dark" id="btn-banned-signout" type="button">Sign off</button>
+      </div>
+    </div>
+  </main>
+
   <!-- Chat -->
   <main class="main" id="main" hidden>
 
@@ -201,6 +213,33 @@
         <button class="btn btn-dark" value="cancel">Cancel</button>
         <button class="btn" value="send">Send image</button>
       </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="dlg dlg-person" id="dlg-person" aria-labelledby="pc-name">
+  <form method="dialog">
+    <div class="window-title window-title-row">
+      <span>Member info</span>
+      <button class="icon-btn" value="close" aria-label="Close">✕</button>
+    </div>
+    <div class="window-body">
+      <div class="pc-head">
+        <span class="avatar avatar-xl" id="pc-avatar" aria-hidden="true"></span>
+        <div class="pc-info">
+          <div class="pc-name-row"><span class="pc-name" id="pc-name"></span><span class="pc-tags" id="pc-tags"></span></div>
+          <div class="person-status" id="pc-status"></div>
+          <div class="person-meta pc-meta" id="pc-meta"></div>
+        </div>
+      </div>
+      <p class="pc-rel" id="pc-rel"></p>
+      <div class="pc-actions" id="pc-actions"></div>
+      <div class="pc-admin" id="pc-admin" hidden>
+        <div class="pc-admin-label">ADMIN TOOLS</div>
+        <div class="pc-actions" id="pc-admin-actions"></div>
+        <p class="pc-hint" id="pc-admin-hint"></p>
+      </div>
+      <p class="form-error" id="pc-error" role="alert" hidden></p>
     </div>
   </form>
 </dialog>

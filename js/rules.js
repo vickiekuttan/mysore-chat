@@ -42,8 +42,13 @@
     USERNAME_INVALID: 'Screen names are 3 to 20 letters, numbers or _.',
     USERNAME_TAKEN: 'That screen name is taken.',
     REQUEST_NOT_FOUND: 'That friend request is no longer open.',
-    NOT_YOURSELF: 'You cannot friend yourself.',
-    USER_NOT_FOUND: 'That person no longer exists.'
+    NOT_YOURSELF: 'You cannot do that to yourself.',
+    USER_NOT_FOUND: 'That person no longer exists.',
+    BANNED: 'You have been banned from Pazhampori chat.',
+    USER_BANNED: 'That person is banned.',
+    NOT_ADMIN: 'Only admins can do that.',
+    CANNOT_CHANGE_OWNER: 'The founder cannot be demoted or banned.',
+    DEMOTE_FIRST: 'Make them a regular first, then ban them.'
   };
 
   function errorCode(err) {

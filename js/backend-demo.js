@@ -16,7 +16,7 @@
     const images = new Map();
 
     const people = [
-      ['jen', 'ADMIN_Jen', '#e02020', 'T1', 'moderating', true, 12],
+      ['jen', 'ADMIN_Jen', '#e02020', 'T1', '', true, 12],
       ['suze', 'cyberSuze', '#e0338f', '56k', 'NYC', false, 0],
       ['dragon', 'xX_Dragon_Xx', '#8a2be2', 'ISDN', '', false, 0],
       ['pete', 'pixel_pete', '#1e6fe0', '28.8k', '', false, 1],
@@ -26,9 +26,10 @@
       ['kid', 'cassetteKid', '#b8860b', '28.8k', 'just arrived', false, 0],
       ['liz', 'laser_liz', '#c2187a', '56k', 'brb dinner', false, 25]
     ];
-    const profiles = [{ id: ME, username: 'star_gazer', color: '#e6c200', modem: '56k', status_text: '', is_admin: false, muted_until: null, image_locked_until: null }]
+    // In the demo you are the founder, so every admin tool can be tried.
+    const profiles = [{ id: ME, username: 'star_gazer', color: '#e6c200', modem: '56k', status_text: '', is_admin: true, is_owner: true, banned_at: null, muted_until: null, image_locked_until: null }]
       .concat(people.map(([id, username, color, modem, status_text, is_admin]) =>
-        ({ id, username, color, modem, status_text, is_admin, muted_until: null, image_locked_until: null })));
+        ({ id, username, color, modem, status_text, is_admin, is_owner: false, banned_at: null, muted_until: null, image_locked_until: null })));
     const idle = Object.fromEntries(people.map((p) => [p[0], p[6]]));
 
     const rooms = [{ id: 'global', kind: 'global', name: 'Global chat', icon: '*' }];
@@ -104,6 +105,8 @@
 
     function botTick() {
       const [u, text] = bots[botIdx++ % bots.length];
+      const bp = profiles.find((p) => p.id === u);
+      if (bp && bp.banned_at) return;
       typers[u] = true; presence();
       setTimeout(() => {
         typers[u] = false; idle[u] = 0;
@@ -210,6 +213,8 @@
       async createInvite() { return uid().toUpperCase().slice(0, 10).padEnd(10, 'X'); },
 
       async sendFriendRequest(to) {
+        const tp = profiles.find((p) => p.id === to);
+        if (tp && tp.banned_at) fail('USER_BANNED');
         const r = friendRequests.find((x) => (x.from_user === ME && x.to_user === to) || (x.from_user === to && x.to_user === ME));
         if (r && r.status === 'accepted') return 'ALREADY_FRIENDS';
         if (r && r.status === 'pending' && r.to_user === ME) { await this.respondFriendRequest(r.id, true); return 'ACCEPTED'; }
@@ -256,6 +261,38 @@
         Object.assign(me(), patch);
         emit('profile', Object.assign({}, me()));
       },
+
+      async setAdmin(id, admin) {
+        const t = profiles.find((p) => p.id === id);
+        if (!t) fail('USER_NOT_FOUND');
+        if (t.is_owner) fail('CANNOT_CHANGE_OWNER');
+        if (admin && t.banned_at) fail('USER_BANNED');
+        if (t.is_admin === admin) return;
+        t.is_admin = admin;
+        emit('profile', Object.assign({}, t));
+        emit('message', Object.assign(add('global', ME, admin ? 'PROMOTED' : 'DEMOTED', 'system'), { target_id: id }));
+      },
+      async banUser(id, ban) {
+        const t = profiles.find((p) => p.id === id);
+        if (id === ME) fail('NOT_YOURSELF');
+        if (!t) fail('USER_NOT_FOUND');
+        if (t.is_owner) fail('CANNOT_CHANGE_OWNER');
+        if (!!t.banned_at === ban) return;
+        if (ban && t.is_admin) fail('DEMOTE_FIRST');
+        t.banned_at = ban ? iso(now()) : null;
+        if (ban) {
+          for (let i = friendRequests.length - 1; i >= 0; i--) {
+            const r = friendRequests[i];
+            if (r.status === 'pending' && (r.from_user === id || r.to_user === id)) {
+              friendRequests.splice(i, 1);
+              emit('friendRequest', Object.assign({}, r, { status: 'declined' }));
+            }
+          }
+        }
+        emit('profile', Object.assign({}, t));
+        emit('message', Object.assign(add('global', ME, ban ? 'BANNED' : 'UNBANNED', 'system'), { target_id: id }));
+      },
+      async loadSelf() { return Object.assign({}, me()); },
 
       async imageUrl(path) { return images.get(path) || ''; },
       async ping() { return { ms: 900 + Math.random() * 900, totalWords: S.total_words }; },

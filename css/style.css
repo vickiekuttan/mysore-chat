@@ -114,6 +114,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .btn-dark:active:not(:disabled) { border-color: #1c1a18 #5d5853 #5d5853 #1c1a18; }
 .btn-sm { font-size: 14px; padding: 6px 10px; }
 .btn-big { font-size: 20px; padding: 10px 18px; justify-content: center; }
+.btn-danger { background: #c62020; border-color: #ff7a6a #6e0d0d #6e0d0d #ff7a6a; }
+.btn-danger:active:not(:disabled) { border-color: #6e0d0d #ff7a6a #ff7a6a #6e0d0d; }
 .btn.has-unread { background: var(--blue); border-color: #8cc8ff #0b4f99 #0b4f99 #8cc8ff; }
 .icon-btn {
   display: grid; place-items: center;
@@ -256,7 +258,12 @@ body.rooms-collapsed .rooms { visibility: hidden; }
 .msg.flash { animation: flash-msg 2s ease-out; }
 @keyframes flash-msg { from { background: rgba(255, 204, 0, 0.28); } }
 .who { display: flex; flex-direction: column; min-width: 0; }
-.name { font-size: 18px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name {
+  font-size: 18px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 0; border: 0; background: none; text-align: left; font-family: var(--mono); max-width: 100%;
+}
+button.name { cursor: pointer; align-self: flex-start; }
+button.name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .meta { font-size: 13px; color: var(--text-faint); white-space: nowrap; }
 .body { font-size: 16px; padding-top: 2px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .chat-img { display: block; max-width: min(100%, 360px); max-height: 280px; border: 3px solid; border-color: #6d6862 #111 #111 #6d6862; image-rendering: auto; background: #000; }
@@ -269,6 +276,8 @@ body.rooms-collapsed .rooms { visibility: hidden; }
   font: 600 14px/1.35 var(--sans);
 }
 .sys-wipe { background: var(--red); color: #fff; text-align: center; letter-spacing: 0.02em; }
+.sys-mode { background: transparent; color: var(--green-text); font: 13px/1.4 var(--mono); }
+.sys-ban { background: #3a1414; color: #ff8a70; font: 600 13px/1.4 var(--mono); }
 .empty-note { padding: 18px 16px; color: var(--text-dim); }
 
 .join-prompt {
@@ -349,21 +358,31 @@ body.rooms-collapsed .rooms { visibility: hidden; }
 .people-list { flex: 1; min-height: 0; overflow-y: auto; }
 .person {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
-  gap: 10px; align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px; align-items: center;
   padding: 8px 10px;
 }
+.person-main {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; align-items: center;
+  min-width: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer;
+}
+.person-main:hover .person-name { text-decoration: underline; text-underline-offset: 3px; }
+.person-info { display: flex; flex-direction: column; min-width: 0; }
+.person.is-banned { opacity: 0.6; }
+.person.is-banned .avatar { filter: grayscale(1); }
 .person.is-op { background: var(--bg-3); }
 .person.is-offline .avatar { filter: grayscale(0.7) brightness(0.7); }
 .person-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .person-name { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .op-tag { margin-left: auto; font-size: 12px; color: var(--red); }
 .you-tag { font-size: 12px; color: var(--text-dim); }
-.person-status { font-size: 14px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.person-status { display: block; font-size: 14px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .person-status.is-online, .person-status.is-typing { color: var(--green-text); }
 .person-status.is-away { color: #c9a227; }
 .person-status.is-offline { color: var(--text-faint); }
-.person-meta { font-size: 12px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-status.is-banned { color: #ff6b5a; }
+.ban-tag { margin-left: auto; font-size: 12px; color: #ff6b5a; }
+.person-meta { display: block; font-size: 12px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .person-act { display: flex; gap: 4px; }
 .person-act .btn-sm { font-size: 13px; padding: 5px 7px; }
 .req-banner {
@@ -404,6 +423,9 @@ body.rooms-collapsed .rooms { visibility: hidden; }
   background: linear-gradient(90deg, #0b2a8a, #2a6fe0);
   color: #fff; font: 700 16px/1.2 var(--pixel);
 }
+.window-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-block: 5px; }
+.window-title-row .icon-btn { color: #fff; font-size: 16px; }
+.window-title-red { background: linear-gradient(90deg, #7a0b0b, #d42a2a); }
 .window-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .window-body p { margin: 0; font-size: 14px; }
 .tabs { display: flex; gap: 6px; }
@@ -497,3 +519,21 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ------------------------------------------------------------- member card */
+.dlg-person { width: min(400px, calc(100% - 32px)); }
+.pc-head { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 14px; align-items: center; }
+.avatar-xl { width: 64px; height: 64px; font-size: 30px; border: 3px solid; border-color: rgba(255,255,255,.35) rgba(0,0,0,.45) rgba(0,0,0,.45) rgba(255,255,255,.35); }
+.pc-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pc-name-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.pc-name { font-size: 20px; overflow-wrap: anywhere; }
+.pc-tags { display: inline-flex; gap: 6px; }
+.pc-tags .op-tag, .pc-tags .ban-tag { margin-left: 0; }
+.pc-meta { white-space: normal; }
+.pc-rel { color: #d8d3cb; }
+.pc-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pc-actions:empty { display: none; }
+.pc-admin { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.pc-admin-label { font: 600 11px/1 var(--pixel); letter-spacing: 0.12em; color: #ff6b5a; }
+.pc-hint { color: var(--text-dim); font-size: 13px !important; }
+.pc-hint:empty { display: none; }

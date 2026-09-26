@@ -129,6 +129,13 @@
       createInvite: () => rpc('create_invite'),
       sendFriendRequest: (id) => rpc('send_friend_request', { p_to: id }),
       respondFriendRequest: (id, accept) => rpc('respond_friend_request', { p_id: id, p_accept: accept }),
+      setAdmin: (id, admin) => rpc('set_admin', { p_user: id, p_admin: admin }),
+      banUser: (id, ban) => rpc('ban_user', { p_user: id, p_ban: ban }),
+
+      // A banned person can still read their own profile row, nothing else.
+      async loadSelf() {
+        return select(sb.from('profiles').select('*').eq('id', userId).maybeSingle());
+      },
 
       async updateProfile(patch) {
         const { error } = await sb.from('profiles').update(patch).eq('id', userId);
