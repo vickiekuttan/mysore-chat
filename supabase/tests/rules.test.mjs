@@ -51,6 +51,7 @@ async function signup(username, code) {
   } finally { await db.exec('reset role;'); }
 }
 const su = (sql, p) => db.query(sql, p);
+const NBSP = String.fromCharCode(0xa0), ZWSP = String.fromCharCode(0x200b);
 const words = n => Array.from({ length: n }, (_, i) => 'w' + i).join(' ');
 
 await db.exec(stubs);
@@ -59,7 +60,7 @@ const first = res[res.length - 1].rows[0].your_first_invite_code;
 console.log('schema loaded; first code', first);
 
 console.log('# word counting');
-for (const [t, n] of [['', 0], ['   ', 0], ['hi', 1], ['  a  b\tc\n d ', 4], ['a b c', 3], ['a​b', 2], [null, 0]]) {
+for (const [t, n] of [['', 0], ['   ', 0], ['hi', 1], ['  a  b\tc\n d ', 4], ['a' + NBSP + 'b' + NBSP + 'c', 3], ['a' + ZWSP + 'b', 2], [null, 0]]) {
   const r = await su('select public.count_words($1) n', [t]);
   ok(`count_words(${JSON.stringify(t)}) = ${n}`, r.rows[0].n === n, `got ${r.rows[0].n}`);
 }
@@ -87,7 +88,7 @@ const send = (uid, room, body, img = null) => as(uid, 'select public.send_messag
 console.log('# 8-word rule');
 ok('8 words OK', (await send(A, G, words(8))).rows[0].r.id > 0);
 await expectErr('9 words rejected', A, 'select public.send_message($1,$2)', [G, words(9)], 'TOO_MANY_WORDS');
-await expectErr('NBSP-glued 9 words rejected', A, 'select public.send_message($1,$2)', [G, words(9).replaceAll(' ', ' ')], 'TOO_MANY_WORDS');
+await expectErr('NBSP-glued 9 words rejected', A, 'select public.send_message($1,$2)', [G, words(9).replaceAll(' ', NBSP)], 'TOO_MANY_WORDS');
 await expectErr('161 chars rejected', A, 'select public.send_message($1,$2)', [G, 'x'.repeat(161)], 'TOO_LONG');
 await expectErr('empty rejected', A, 'select public.send_message($1,$2)', [G, '   '], 'EMPTY');
 await expectErr('direct insert blocked', A, `insert into messages (room_id, user_id, body) values ($1,$2,'hax')`, [G, A]);

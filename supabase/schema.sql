@@ -132,7 +132,11 @@ create function public.count_words(t text) returns int
 language sql immutable as $$
   select case when s.n = '' then 0 else array_length(string_to_array(s.n, ' '), 1) end
   from (select btrim(regexp_replace(coalesce(t, ''),
-          '[\s\u00a0\u1680\u2000-\u200b\u2028\u2029\u202f\u205f\u3000\ufeff]+', ' ', 'g')) as n) s
+          -- whitespace plus: no-break space, ogham space, U+2000 to U+200B,
+          -- line/paragraph separators, narrow no-break, math and ideographic
+          -- spaces, zero-width no-break space
+          '[\s' || chr(160) || chr(5760) || chr(8192) || '-' || chr(8203) || chr(8232) || chr(8233)
+            || chr(8239) || chr(8287) || chr(12288) || chr(65279) || ']+', ' ', 'g')) as n) s
 $$;
 
 -- A member is someone with a profile who is not banned.

@@ -2,7 +2,12 @@
 // them so the page can show a friendly counter before you hit Send.
 (function () {
   // Must match public.count_words() in supabase/schema.sql.
-  const SPACES = /[\s\u00a0\u1680\u2000-\u200b\u2028\u2029\u202f\u205f\u3000\ufeff]+/g;
+  // Built from character codes so no invisible characters live in this file:
+  // no-break space, ogham space, U+2000 to U+200B, line/paragraph separators,
+  // narrow no-break space, math space, ideographic space, zero-width no-break.
+  const EXTRA = [0x00a0, 0x1680, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff];
+  for (let c = 0x2000; c <= 0x200b; c++) EXTRA.push(c);
+  const SPACES = new RegExp('[\\s' + String.fromCharCode.apply(null, EXTRA) + ']+', 'g');
 
   function countWords(text) {
     const t = String(text || '').replace(SPACES, ' ').trim();
