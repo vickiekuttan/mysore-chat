@@ -17,6 +17,8 @@ These are enforced by the database itself (`supabase/schema.sql`), so nobody can
 | Friends | Send a request, the other person accepts, then you get a private chat. Up to 200 words per message, no images |
 | Joining | Invite code only. Every member can make up to 5 unused codes at a time |
 
+Every number above lives in the `settings` table. Change it there (Supabase > Table Editor > settings) and it takes effect immediately, no code change.
+
 ## Friends, admins and bans
 
 - **Click any username** (in Global chat, a group, or the people list) to open their member card. From there you can send a friend request, accept one, or open your private chat.
@@ -25,8 +27,6 @@ These are enforced by the database itself (`supabase/schema.sql`), so nobody can
 - **A ban** locks the person out right away: they can't read, post, upload, invite or send friend requests. Their unused invite codes and pending friend requests are deleted. An admin can unban them at any time.
 - **Admins can't be banned directly.** Make them a regular first. The founder can never be banned.
 - **Every admin action is announced** in Global chat, IRC style: `*** ADMIN_Jen sets mode +o cyberSuze (now an admin)`.
-
-Every number above lives in the `settings` table. Change it there (Supabase > Table Editor > settings) and it takes effect immediately, no code change.
 
 ## Try it without setting anything up
 
@@ -43,11 +43,11 @@ Download the repo and double-click `index.html`. With no Supabase details in `js
 
 ### 2. Turn off email confirmation (recommended)
 
-Supabase's built-in email sender only sends a few emails per hour, which breaks sign-ups when several friends join at once. Since nobody can join without an invite code anyway, it is simpler to skip confirmation:
+Supabase's built-in email sender sends only 2 emails an hour, and only to people on your Supabase team, so confirmation emails would never reach your friends ([Supabase docs](https://supabase.com/docs/guides/auth/auth-smtp)). Since nobody can join without an invite code anyway, skip confirmation:
 
 **Authentication** > **Sign In / Providers** > **Email** > switch off **Confirm email** > **Save**.
 
-(If you keep it on, people must click the link in their email before signing in.)
+To send real emails (confirmations, password resets) you need your own email sender, such as Resend, connected under **Authentication** > **Emails** > **SMTP Settings**. That usually needs your own domain.
 
 ### 3. Connect the page to the database
 
