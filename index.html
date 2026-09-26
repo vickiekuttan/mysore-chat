@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pazhampori chat</title>
+  <meta name="description" content="An invite-only, 90s-style chatroom.">
+  <link rel="icon" href="assets/pazhampori.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=Pixelify+Sans:wght@500;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="frame" id="frame">
+
+  <!-- Title bar -->
+  <header class="titlebar">
+    <img class="logo" src="assets/pazhampori.svg" alt="" width="34" height="22">
+    <h1>Pazhampori chat</h1>
+  </header>
+
+  <!-- Toolbar -->
+  <div class="toolbar" id="toolbar" hidden>
+    <button class="btn" id="btn-join" type="button">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2h8v3M11 11v3H3V2M7 8h8M12 5l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      Join
+    </button>
+    <button class="btn" id="btn-invite" type="button">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="5" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M1.5 15c.5-3.5 3-5 5.5-5s5 1.5 5.5 5M13 2v4M11 4h4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      Invite
+    </button>
+    <button class="btn" id="btn-create" type="button">
+      <svg viewBox="0 0 18 16" aria-hidden="true"><circle cx="6" cy="5" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12.5" cy="5.5" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M1 15c.4-3.3 2.6-5 5-5s4.6 1.7 5 5M12 10c2.4 0 4.3 1.4 4.8 4.4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      Create group
+    </button>
+    <div class="toolbar-mobile">
+      <button class="btn btn-dark" id="btn-show-rooms" type="button">Rooms</button>
+      <button class="btn btn-dark" id="btn-show-people" type="button">People <span class="pill" id="people-badge" hidden></span></button>
+    </div>
+    <div class="conn" id="conn"><span class="dot"></span><span id="conn-text">CONNECTING…</span></div>
+  </div>
+
+  <!-- Sign on screen -->
+  <main class="signon" id="signon" hidden>
+    <div class="window">
+      <div class="window-title">Sign on to Pazhampori chat</div>
+      <div class="window-body">
+        <div class="tabs" role="tablist">
+          <button class="tab is-active" id="tab-signin" type="button" role="tab" aria-selected="true">Sign in</button>
+          <button class="tab" id="tab-signup" type="button" role="tab" aria-selected="false">I have an invite</button>
+        </div>
+        <form id="form-auth" autocomplete="on" novalidate>
+          <label class="field only-signup" hidden>Invite code
+            <input id="auth-code" name="code" autocomplete="off" spellcheck="false" placeholder="e.g. 8B83285DF9">
+          </label>
+          <label class="field only-signup" hidden>Screen name
+            <input id="auth-username" name="username" autocomplete="nickname" spellcheck="false" placeholder="star_gazer" maxlength="20">
+            <small>3 to 20 letters, numbers or _</small>
+          </label>
+          <label class="field">Email
+            <input id="auth-email" name="email" type="email" autocomplete="email" required>
+          </label>
+          <label class="field">Password
+            <input id="auth-password" name="password" type="password" autocomplete="current-password" minlength="6" required>
+          </label>
+          <p class="form-error" id="auth-error" role="alert" hidden></p>
+          <button class="btn btn-big" id="auth-submit" type="submit">Sign on</button>
+        </form>
+        <p class="modem-line" id="modem-line">ATDT 555-0199 … CONNECT 56000</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- Chat -->
+  <main class="main" id="main" hidden>
+
+    <aside class="panel rooms" id="rooms-panel" aria-label="Rooms">
+      <div class="panel-head">
+        <span>ROOMS</span>
+        <button class="icon-btn" id="btn-collapse-rooms" type="button" aria-label="Hide rooms">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 5 6.5 8l3 3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+      </div>
+      <label class="search">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m10.5 10.5 4 4" stroke="currentColor" stroke-width="1.6"/></svg>
+        <input id="room-search" type="search" placeholder="find a room..." aria-label="Find a room">
+      </label>
+      <nav class="room-list" id="room-list"></nav>
+      <p class="tip">TIP: Double-click a room to join. New messages flash yellow.</p>
+    </aside>
+
+    <section class="chat" aria-label="Conversation">
+      <div class="chat-head">
+        <h2 id="room-title">Global Chat</h2>
+        <span class="live"><span class="live-dot"></span>LIVE</span>
+        <div class="online-summary">
+          <div class="avatar-stack" id="avatar-stack"></div>
+          <span id="online-count">1 person is online</span>
+        </div>
+      </div>
+      <div class="conv-bar">
+        <span id="conv-label">Live conversation</span>
+        <span class="conv-meta" id="conv-meta"></span>
+      </div>
+      <div class="messages" id="messages" aria-live="polite"></div>
+      <div class="join-prompt" id="join-prompt" hidden>
+        <p id="join-prompt-text">You're not in this room yet.</p>
+        <button class="btn" id="btn-join-here" type="button">Join room</button>
+      </div>
+      <div class="typing-bar" id="typing-bar"><span class="dots"><i></i><i></i><i></i></span><span id="typing-text"></span></div>
+      <form class="composer" id="composer" autocomplete="off">
+        <div class="input-wrap">
+          <textarea id="msg-input" rows="1" maxlength="2000" placeholder="say something…" aria-label="Message"></textarea>
+          <span class="word-count" id="word-count" aria-live="polite">0/8</span>
+          <label class="img-btn" id="img-btn" title="Send an image (locks you for 10 minutes)">
+            <input type="file" id="img-input" accept="image/png,image/jpeg,image/gif,image/webp">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m3 18 6-6 4 4 3-3 5 5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="16.5" cy="9" r="1.6" fill="currentColor"/><path d="M17 1v6M14 4h6" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span class="sr-only">Send an image</span>
+          </label>
+        </div>
+        <button class="btn btn-send" id="btn-send" type="submit">SEND
+          <svg viewBox="0 0 20 16" aria-hidden="true"><path d="M2 2l6 6-6 6M10 2l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.6"/></svg>
+        </button>
+      </form>
+      <p class="composer-note" id="composer-note" role="status"></p>
+    </section>
+
+    <aside class="panel people" id="people-panel" aria-label="People">
+      <div class="people-tabs" role="tablist">
+        <button class="ptab is-active" id="ptab-all" type="button" role="tab" aria-selected="true">ALL</button>
+        <button class="ptab" id="ptab-friends" type="button" role="tab" aria-selected="false">FRIENDS <span class="pill" id="friends-badge" hidden></span></button>
+        <button class="icon-btn people-close" id="btn-close-people" type="button" aria-label="Close people">✕</button>
+      </div>
+      <div class="people-list" id="people-list"></div>
+    </aside>
+
+  </main>
+
+  <!-- Status bar -->
+  <footer class="statusbar" id="statusbar">
+    <span class="sb-conn" id="sb-conn">Dialing…</span>
+    <span class="sb-right">
+      <span class="sb-words" id="sb-words" title="When Global chat and groups reach this many words, everything in them is erased."></span>
+      <button class="sb-you" id="sb-you" type="button" hidden></button>
+    </span>
+  </footer>
+</div>
+
+<!-- Dialogs -->
+<dialog class="dlg" id="dlg-create">
+  <form method="dialog" id="form-create">
+    <div class="window-title">Create group</div>
+    <div class="window-body">
+      <label class="field">Group name
+        <input id="create-name" maxlength="24" spellcheck="false" placeholder="after_school" required>
+        <small>2 to 24 lowercase letters, numbers or _</small>
+      </label>
+      <fieldset class="icon-pick" id="create-icons"><legend>Icon</legend></fieldset>
+      <p class="form-error" id="create-error" role="alert" hidden></p>
+      <div class="dlg-actions">
+        <button class="btn btn-dark" value="cancel" type="submit" formnovalidate>Cancel</button>
+        <button class="btn" id="create-submit" value="ok" type="submit">Create</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="dlg" id="dlg-join">
+  <form method="dialog">
+    <div class="window-title">Join a room</div>
+    <div class="window-body">
+      <div class="join-list" id="join-list"></div>
+      <div class="dlg-actions"><button class="btn btn-dark" value="cancel">Close</button></div>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="dlg" id="dlg-invite">
+  <form method="dialog">
+    <div class="window-title">Invite a friend</div>
+    <div class="window-body">
+      <p>Send them this code and the link to this page. Each code works once.</p>
+      <div class="invite-code" id="invite-code">…</div>
+      <p class="form-error" id="invite-error" role="alert" hidden></p>
+      <div class="dlg-actions">
+        <button class="btn btn-dark" value="cancel">Close</button>
+        <button class="btn" id="invite-copy" type="button">Copy code</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="dlg" id="dlg-image">
+  <form method="dialog">
+    <div class="window-title">Send this image?</div>
+    <div class="window-body">
+      <img class="img-preview" id="img-preview" alt="Image you picked">
+      <p id="img-warning">After sending an image you can't send anything for 10 minutes.</p>
+      <div class="dlg-actions">
+        <button class="btn btn-dark" value="cancel">Cancel</button>
+        <button class="btn" value="send">Send image</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="dlg" id="dlg-profile">
+  <form method="dialog" id="form-profile">
+    <div class="window-title">Your profile</div>
+    <div class="window-body">
+      <label class="field">Screen name
+        <input id="prof-username" maxlength="20" spellcheck="false">
+      </label>
+      <label class="field">Status line
+        <input id="prof-status" maxlength="40" placeholder="brb dinner">
+      </label>
+      <label class="field">Modem
+        <select id="prof-modem">
+          <option>14.4k</option><option>28.8k</option><option>33.6k</option><option>56k</option>
+          <option>ISDN</option><option>cable</option><option>T1</option>
+        </select>
+      </label>
+      <fieldset class="color-pick" id="prof-colors"><legend>Name color</legend></fieldset>
+      <p class="form-error" id="prof-error" role="alert" hidden></p>
+      <div class="dlg-actions">
+        <button class="btn btn-dark" id="btn-signout" type="button">Sign off</button>
+        <span class="spacer"></span>
+        <button class="btn btn-dark" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn" value="save">Save</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<script src="js/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<script src="js/rules.js"></script>
+<script src="js/backend-supabase.js"></script>
+<script src="js/backend-demo.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

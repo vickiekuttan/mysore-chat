@@ -1,0 +1,14 @@
+{
+  "name": "pazhampori-chat",
+  "version": "0.1.0",
+  "description": "An invite-only, 90s-style chatroom on Supabase.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node supabase/tests/rules.test.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8"
+  }
+}
