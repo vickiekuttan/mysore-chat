@@ -3,7 +3,8 @@
 --
 -- Paste this whole file into Supabase > SQL Editor > New query, then Run.
 -- It is safe to run on a fresh project only. The last line prints your first
--- invite code; use it to create the first account (that account becomes OP).
+-- invite code (valid 30 days); the first account that joins with it becomes
+-- the founder.
 --
 -- Every chat rule is enforced HERE, in the database, not in the browser.
 -- The web page only mirrors the rules so people see friendly messages.
@@ -28,7 +29,9 @@ create table public.settings (
   wipe_at_words       bigint not null default 1000000,  -- Global + groups are erased at this many words
   total_words         bigint not null default 0,        -- running count since the last wipe
   wipe_count          int    not null default 0,
-  last_wiped_at       timestamptz
+  last_wiped_at       timestamptz,
+  invite_days         int    not null default 7,        -- how long an invite link works
+  max_active_invites  int    not null default 5         -- live invite links per member
 );
 insert into public.settings default values;
 
@@ -49,6 +52,8 @@ create table public.profiles (
   banned_by          uuid references public.profiles(id) on delete set null,
   muted_until        timestamptz,
   image_locked_until timestamptz,
+  invited_by         uuid references public.profiles(id) on delete set null,
+  invite_code        text,
   created_at         timestamptz not null default now(),
   check (not is_owner or is_admin),
   check (not is_owner or banned_at is null)
@@ -56,12 +61,15 @@ create table public.profiles (
 create unique index profiles_username_ci on public.profiles (lower(username));
 create unique index profiles_one_owner   on public.profiles (is_owner) where is_owner;
 
+-- Invite links. One link can bring in any number of people until it expires
+-- (7 days by default) or its creator or an admin revokes it.
 create table public.invites (
   code       text primary key,
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now(),
-  used_by    uuid references public.profiles(id) on delete set null,
-  used_at    timestamptz
+  expires_at timestamptz not null default now() + interval '7 days',
+  revoked_at timestamptz,
+  uses       int not null default 0
 );
 
 create table public.rooms (
@@ -71,8 +79,10 @@ create table public.rooms (
   icon       text not null default '#' check (icon in ('#','*','♬','@','?','♥','!','~','$','%')),
   created_by uuid references public.profiles(id) on delete set null,
   dm_key     text unique,            -- "smallerUserId:largerUserId" for friend chats
+  locked     boolean not null default false,  -- locked groups: admin invite or approval only
   created_at timestamptz not null default now(),
   check (kind <> 'group' or name ~ '^[a-z0-9_]{2,24}$'),
+  check (not locked or kind = 'group'),
   check ((kind = 'dm') = (dm_key is not null))
 );
 create unique index rooms_one_global  on public.rooms (kind) where kind = 'global';
@@ -86,6 +96,17 @@ create table public.room_members (
   primary key (room_id, user_id)
 );
 create index room_members_user on public.room_members (user_id);
+
+-- Locked groups: an admin's invitation ('invite') or someone asking to join
+-- ('request'). One open row per person per group.
+create table public.room_requests (
+  room_id    uuid not null references public.rooms(id) on delete cascade,
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  kind       text not null check (kind in ('invite','request')),
+  by_user    uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  primary key (room_id, user_id)
+);
 
 create table public.messages (
   id         bigint generated always as identity primary key,
@@ -177,57 +198,71 @@ $$;
 
 
 -- ---------------------------------------------------------------------------
--- 4. Sign-up: an account is only created with a valid, unused invite code.
---    The web page passes invite_code and username as sign-up metadata.
+-- 4. Joining. Anyone can sign in (Google or email), but only a valid invite
+--    link turns a sign-in into a member. Signed-in people without a profile
+--    can't see or do anything.
 -- ---------------------------------------------------------------------------
-create function public.handle_new_user() returns trigger
+
+-- Is this invite usable right now? Returns OK, INVITE_INVALID or INVITE_EXPIRED.
+create function public.invite_state(p_code text) returns text
+language sql stable security definer set search_path = public as $$
+  select case
+    when i.code is null or i.revoked_at is not null then 'INVITE_INVALID'
+    when exists (select 1 from public.profiles c where c.id = i.created_by and c.banned_at is not null) then 'INVITE_INVALID'
+    when i.expires_at <= now() then 'INVITE_EXPIRED'
+    else 'OK'
+  end
+  from (select 1) one
+  left join public.invites i on i.code = upper(btrim(coalesce(p_code, '')))
+$$;
+
+-- Lets the invite page check the link (and a screen name) before signing in.
+create function public.check_signup(p_code text, p_username text default null) returns text
+language plpgsql stable security definer set search_path = public as $$
+declare v_state text := public.invite_state(p_code);
+begin
+  if v_state <> 'OK' then return v_state; end if;
+  if p_username is null then return 'OK'; end if;
+  if btrim(p_username) !~ '^[A-Za-z0-9_]{3,20}$' then return 'USERNAME_INVALID'; end if;
+  if exists (select 1 from public.profiles where lower(username) = lower(btrim(p_username))) then
+    return 'USERNAME_TAKEN';
+  end if;
+  return 'OK';
+end $$;
+
+-- Called right after signing in with an invite link: creates your profile.
+-- The very first person ever to join becomes the founder.
+create function public.join_with_invite(p_code text, p_username text) returns void
 language plpgsql security definer set search_path = public as $$
 declare
-  v_code     text := upper(btrim(coalesce(new.raw_user_meta_data->>'invite_code', '')));
-  v_username text := btrim(coalesce(new.raw_user_meta_data->>'username', ''));
+  v_uid      uuid := auth.uid();
+  v_code     text := upper(btrim(coalesce(p_code, '')));
+  v_username text := btrim(coalesce(p_username, ''));
+  v_inv      public.invites%rowtype;
+  v_state    text;
   v_first    boolean;
   v_colors   text[] := array['#e0338f','#8a2be2','#1e6fe0','#12a07a','#e0661a','#1ba3bd','#b8860b','#c2187a','#5c9e1e'];
 begin
-  perform 1 from public.invites where code = v_code and used_by is null for update;
-  if not found then
-    raise exception 'INVITE_INVALID';
-  end if;
-  if v_username !~ '^[A-Za-z0-9_]{3,20}$' then
-    raise exception 'USERNAME_INVALID';
-  end if;
+  if v_uid is null then raise exception 'NOT_SIGNED_IN'; end if;
+  if exists (select 1 from public.profiles where id = v_uid) then raise exception 'ALREADY_MEMBER'; end if;
+
+  select * into v_inv from public.invites where code = v_code for update;
+  v_state := public.invite_state(v_code);
+  if v_state <> 'OK' then raise exception '%', v_state; end if;
+
+  if v_username !~ '^[A-Za-z0-9_]{3,20}$' then raise exception 'USERNAME_INVALID'; end if;
   if exists (select 1 from public.profiles where lower(username) = lower(v_username)) then
     raise exception 'USERNAME_TAKEN';
   end if;
 
   select not exists (select 1 from public.profiles) into v_first;
 
-  insert into public.profiles (id, username, color, is_admin, is_owner)
-  values (new.id, v_username,
+  insert into public.profiles (id, username, color, is_admin, is_owner, invited_by, invite_code)
+  values (v_uid, v_username,
           case when v_first then '#e02020' else v_colors[1 + floor(random() * array_length(v_colors, 1))::int] end,
-          v_first, v_first);
+          v_first, v_first, v_inv.created_by, v_code);
 
-  update public.invites set used_by = new.id, used_at = now() where code = v_code;
-  return new;
-end $$;
-
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
-
--- Lets the sign-up form say "that invite code doesn't work" before trying.
-create function public.check_signup(p_code text, p_username text) returns text
-language plpgsql stable security definer set search_path = public as $$
-begin
-  if not exists (select 1 from public.invites where code = upper(btrim(p_code)) and used_by is null) then
-    return 'INVITE_INVALID';
-  end if;
-  if btrim(coalesce(p_username, '')) !~ '^[A-Za-z0-9_]{3,20}$' then
-    return 'USERNAME_INVALID';
-  end if;
-  if exists (select 1 from public.profiles where lower(username) = lower(btrim(p_username))) then
-    return 'USERNAME_TAKEN';
-  end if;
-  return 'OK';
+  update public.invites set uses = uses + 1 where code = v_code;
 end $$;
 
 
@@ -342,7 +377,8 @@ begin
 end $$;
 
 
-create function public.create_group(p_name text, p_icon text default '#') returns uuid
+-- Anyone can create an open group. Only admins can create a locked one.
+create function public.create_group(p_name text, p_icon text default '#', p_locked boolean default false) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare
   v_uid  uuid := auth.uid();
@@ -350,6 +386,7 @@ declare
   v_id   uuid;
 begin
   if not public.is_member() then raise exception 'NOT_A_MEMBER'; end if;
+  if coalesce(p_locked, false) and not public.am_admin() then raise exception 'NOT_ADMIN'; end if;
   if v_name !~ '^[a-z0-9_]{2,24}$' then raise exception 'GROUP_NAME_INVALID'; end if;
   if exists (select 1 from public.rooms where kind = 'group' and lower(name) = v_name) then
     raise exception 'GROUP_NAME_TAKEN';
@@ -361,8 +398,8 @@ begin
     raise exception 'TOO_MANY_GROUPS';
   end if;
 
-  insert into public.rooms (kind, name, icon, created_by)
-  values ('group', v_name, coalesce(nullif(p_icon, ''), '#'), v_uid)
+  insert into public.rooms (kind, name, icon, created_by, locked)
+  values ('group', v_name, coalesce(nullif(p_icon, ''), '#'), v_uid, coalesce(p_locked, false))
   returning id into v_id;
   insert into public.room_members (room_id, user_id) values (v_id, v_uid);
   insert into public.messages (room_id, user_id, kind, body) values (v_id, v_uid, 'system', 'CREATED');
@@ -370,18 +407,119 @@ begin
 end $$;
 
 
+-- Join a group. Locked groups need an admin's invitation first (admins
+-- themselves can walk into any locked group).
 create function public.join_room(p_room uuid) returns void
 language plpgsql security definer set search_path = public as $$
+declare v_room public.rooms%rowtype;
 begin
   if not public.is_member() then raise exception 'NOT_A_MEMBER'; end if;
-  if not exists (select 1 from public.rooms where id = p_room and kind = 'group') then
-    raise exception 'ROOM_NOT_FOUND';
+  select * into v_room from public.rooms where id = p_room and kind = 'group';
+  if not found then raise exception 'ROOM_NOT_FOUND'; end if;
+  if exists (select 1 from public.room_members where room_id = p_room and user_id = auth.uid()) then return; end if;
+  if v_room.locked and not public.am_admin() then
+    delete from public.room_requests where room_id = p_room and user_id = auth.uid() and kind = 'invite';
+    if not found then raise exception 'GROUP_LOCKED'; end if;
   end if;
-  insert into public.room_members (room_id, user_id) values (p_room, auth.uid())
-  on conflict do nothing;
+  perform public.add_to_room(p_room, auth.uid());
+end $$;
+
+-- Internal: add someone to a group and announce it. Not callable from the page.
+create function public.add_to_room(p_room uuid, p_user uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.room_members (room_id, user_id) values (p_room, p_user) on conflict do nothing;
+  if found then
+    insert into public.messages (room_id, user_id, kind, body) values (p_room, p_user, 'system', 'JOINED');
+  end if;
+  delete from public.room_requests where room_id = p_room and user_id = p_user;
+end $$;
+
+-- Ask to join a locked group. If an admin already invited you, you're in.
+-- Returns REQUESTED, ALREADY_REQUESTED, JOINED or ALREADY_IN.
+create function public.request_to_join(p_room uuid) returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  v_room public.rooms%rowtype;
+  v_req  public.room_requests%rowtype;
+begin
+  if not public.is_member() then raise exception 'NOT_A_MEMBER'; end if;
+  select * into v_room from public.rooms where id = p_room and kind = 'group';
+  if not found then raise exception 'ROOM_NOT_FOUND'; end if;
+  if not v_room.locked then raise exception 'NOT_LOCKED'; end if;
+  if exists (select 1 from public.room_members where room_id = p_room and user_id = auth.uid()) then return 'ALREADY_IN'; end if;
+  select * into v_req from public.room_requests where room_id = p_room and user_id = auth.uid() for update;
+  if found and v_req.kind = 'invite' then
+    perform public.add_to_room(p_room, auth.uid());
+    return 'JOINED';
+  elsif found then
+    return 'ALREADY_REQUESTED';
+  end if;
+  insert into public.room_requests (room_id, user_id, kind, by_user) values (p_room, auth.uid(), 'request', auth.uid());
+  return 'REQUESTED';
+end $$;
+
+-- Withdraw your own request, or decline an admin's invitation.
+create function public.dismiss_room_request(p_room uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.room_requests where room_id = p_room and user_id = auth.uid();
+end $$;
+
+-- Admins: invite someone into a locked group. If they had already asked to
+-- join, this lets them straight in. Returns INVITED, ADDED or ALREADY_IN.
+create function public.invite_to_group(p_room uuid, p_user uuid) returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  v_room public.rooms%rowtype;
+  v_req  public.room_requests%rowtype;
+begin
+  if not public.am_admin() then raise exception 'NOT_ADMIN'; end if;
+  select * into v_room from public.rooms where id = p_room and kind = 'group';
+  if not found then raise exception 'ROOM_NOT_FOUND'; end if;
+  if not v_room.locked then raise exception 'NOT_LOCKED'; end if;
+  if not exists (select 1 from public.profiles where id = p_user) then raise exception 'USER_NOT_FOUND'; end if;
+  if exists (select 1 from public.profiles where id = p_user and banned_at is not null) then raise exception 'USER_BANNED'; end if;
+  if exists (select 1 from public.room_members where room_id = p_room and user_id = p_user) then return 'ALREADY_IN'; end if;
+  select * into v_req from public.room_requests where room_id = p_room and user_id = p_user for update;
+  if found and v_req.kind = 'request' then
+    perform public.add_to_room(p_room, p_user);
+    return 'ADDED';
+  end if;
+  insert into public.room_requests (room_id, user_id, kind, by_user) values (p_room, p_user, 'invite', auth.uid())
+  on conflict (room_id, user_id) do update set kind = 'invite', by_user = excluded.by_user, created_at = now();
+  return 'INVITED';
+end $$;
+
+-- Admins: let someone who asked into a locked group, or turn them down.
+create function public.answer_join_request(p_room uuid, p_user uuid, p_accept boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.am_admin() then raise exception 'NOT_ADMIN'; end if;
+  if not exists (select 1 from public.room_requests where room_id = p_room and user_id = p_user and kind = 'request') then
+    raise exception 'REQUEST_NOT_FOUND';
+  end if;
+  if p_accept then
+    if exists (select 1 from public.profiles where id = p_user and banned_at is not null) then raise exception 'USER_BANNED'; end if;
+    perform public.add_to_room(p_room, p_user);
+  else
+    delete from public.room_requests where room_id = p_room and user_id = p_user;
+  end if;
+end $$;
+
+-- Admins: lock or unlock an existing group. Current members stay.
+create function public.set_group_locked(p_room uuid, p_locked boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.am_admin() then raise exception 'NOT_ADMIN'; end if;
+  update public.rooms set locked = p_locked where id = p_room and kind = 'group' and locked <> p_locked;
   if found then
     insert into public.messages (room_id, user_id, kind, body)
-    values (p_room, auth.uid(), 'system', 'JOINED');
+    values (p_room, auth.uid(), 'system', case when p_locked then 'LOCKED' else 'UNLOCKED' end);
+    if not p_locked then
+      -- Open groups need no invitations or requests.
+      delete from public.room_requests where room_id = p_room;
+    end if;
   end if;
 end $$;
 
@@ -396,17 +534,33 @@ begin
 end $$;
 
 
-create function public.create_invite() returns text
+-- Make an invite link code. Returns {"code": ..., "expires_at": ...}.
+create function public.create_invite() returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare v_code text;
+declare
+  v_set  public.settings%rowtype;
+  v_code text := public.new_code();
+  v_exp  timestamptz;
 begin
   if not public.is_member() then raise exception 'NOT_A_MEMBER'; end if;
-  if (select count(*) from public.invites where created_by = auth.uid() and used_by is null) >= 5 then
+  select * into v_set from public.settings where id = 1;
+  if (select count(*) from public.invites
+       where created_by = auth.uid() and revoked_at is null and expires_at > now()) >= v_set.max_active_invites then
     raise exception 'TOO_MANY_INVITES';
   end if;
-  v_code := public.new_code();
-  insert into public.invites (code, created_by) values (v_code, auth.uid());
-  return v_code;
+  v_exp := now() + make_interval(days => v_set.invite_days);
+  insert into public.invites (code, created_by, expires_at) values (v_code, auth.uid(), v_exp);
+  return jsonb_build_object('code', v_code, 'expires_at', v_exp);
+end $$;
+
+-- Switch off an invite link. Its creator or any admin can do this.
+create function public.revoke_invite(p_code text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_member() then raise exception 'NOT_A_MEMBER'; end if;
+  update public.invites set revoked_at = coalesce(revoked_at, now())
+   where code = upper(btrim(p_code)) and (created_by = auth.uid() or public.am_admin());
+  if not found then raise exception 'INVITE_INVALID'; end if;
 end $$;
 
 
@@ -531,7 +685,8 @@ begin
   if p_ban then
     if v_t.is_admin then raise exception 'DEMOTE_FIRST'; end if;
     update public.profiles set banned_at = now(), banned_by = auth.uid() where id = p_user;
-    delete from public.invites where created_by = p_user and used_by is null;
+    update public.invites set revoked_at = now() where created_by = p_user and revoked_at is null;
+    delete from public.room_requests where user_id = p_user;
     delete from public.friend_requests where status = 'pending' and (from_user = p_user or to_user = p_user);
   else
     update public.profiles set banned_at = null, banned_by = null where id = p_user;
@@ -554,6 +709,7 @@ alter table public.room_members    enable row level security;
 alter table public.messages        enable row level security;
 alter table public.friend_requests enable row level security;
 alter table public.orphaned_images enable row level security;
+alter table public.room_requests   enable row level security;
 
 create policy "members read settings" on public.settings
   for select to authenticated using (public.is_member());
@@ -594,17 +750,28 @@ create policy "read messages in my rooms" on public.messages
 create policy "see my friend requests" on public.friend_requests
   for select to authenticated using (from_user = auth.uid() or to_user = auth.uid());
 
+-- Your own invitations/requests; admins see all of them so they can answer.
+create policy "see locked-group requests" on public.room_requests
+  for select to authenticated using (
+    public.is_member() and (user_id = auth.uid() or public.am_admin())
+  );
+
 -- orphaned_images: no policies, so only the Supabase dashboard can see it.
 
--- Signed-out visitors may only call check_signup.
-revoke execute on all functions in schema public from anon, public;
-grant  execute on function public.handle_new_user() to supabase_auth_admin;
+-- Signed-out visitors may only check an invite link. add_to_room and
+-- invite_state are internal helpers and are not granted to anyone.
+revoke execute on all functions in schema public from anon, authenticated, public;
 grant  execute on function public.check_signup(text, text) to anon, authenticated;
-grant  execute on function public.count_words(text), public.is_member(), public.can_read_room(uuid),
-         public.can_upload_image(), public.send_message(uuid, text, text), public.create_group(text, text),
-         public.join_room(uuid), public.leave_room(uuid), public.create_invite(),
+grant  execute on function public.count_words(text), public.is_member(), public.am_admin(),
+         public.can_read_room(uuid), public.can_upload_image(),
+         public.join_with_invite(text, text), public.create_invite(), public.revoke_invite(text),
+         public.send_message(uuid, text, text),
+         public.create_group(text, text, boolean), public.join_room(uuid), public.leave_room(uuid),
+         public.request_to_join(uuid), public.dismiss_room_request(uuid),
+         public.invite_to_group(uuid, uuid), public.answer_join_request(uuid, uuid, boolean),
+         public.set_group_locked(uuid, boolean),
          public.send_friend_request(uuid), public.respond_friend_request(bigint, boolean),
-         public.am_admin(), public.set_admin(uuid, boolean), public.ban_user(uuid, boolean)
+         public.set_admin(uuid, boolean), public.ban_user(uuid, boolean)
   to authenticated;
 
 
@@ -632,11 +799,13 @@ create policy "members view images" on storage.objects
 -- ---------------------------------------------------------------------------
 alter publication supabase_realtime add table
   public.messages, public.rooms, public.room_members, public.profiles,
-  public.friend_requests, public.settings;
+  public.friend_requests, public.settings, public.room_requests;
 
 
 -- ---------------------------------------------------------------------------
--- 9. Your first invite code (use it to sign up; that first account is OP)
+-- 9. Your first invite code, valid 30 days. Open your site with
+--    #invite=THE_CODE on the end of the address; the first account to join
+--    becomes the founder.
 -- ---------------------------------------------------------------------------
-insert into public.invites (code) values (public.new_code());
+insert into public.invites (code, expires_at) values (public.new_code(), now() + interval '30 days');
 select code as your_first_invite_code from public.invites;

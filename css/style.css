@@ -537,3 +537,61 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
 .pc-admin-label { font: 600 11px/1 var(--pixel); letter-spacing: 0.12em; color: #ff6b5a; }
 .pc-hint { color: var(--text-dim); font-size: 13px !important; }
 .pc-hint:empty { display: none; }
+
+/* ------------------------------------------------------------- sign on panels */
+.auth-panel { display: flex; flex-direction: column; gap: 12px; }
+.auth-form { display: flex; flex-direction: column; gap: 12px; }
+.btn-google { background: #f3efe8; color: #1a1a1a; border-color: #ffffff #8d8780 #8d8780 #ffffff; }
+.btn-google:active:not(:disabled) { border-color: #8d8780 #ffffff #ffffff #8d8780; }
+.or { display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 12px; }
+.or::before, .or::after { content: ''; flex: 1; border-top: 1px dashed var(--line); }
+.auth-links { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.link-btn {
+  padding: 0; border: 0; background: none; cursor: pointer;
+  color: #7fb8ff; font: 13px var(--mono); text-decoration: underline; text-underline-offset: 3px;
+}
+.link-btn:hover { color: #b3d4ff; }
+.invite-hello { font-size: 15px !important; color: var(--text); }
+.fine-print { color: var(--text-dim); font-size: 12px !important; }
+.auth-ok { color: var(--green-text); font-size: 13px !important; }
+
+/* ------------------------------------------------------------- locked groups */
+.room-lock { display: inline-grid; place-items: center; margin-left: 6px; color: #e6c200; vertical-align: -1px; }
+.room-lock svg { width: 10px; height: 12px; }
+.room-count.is-waiting { color: #111; background: var(--yellow); padding: 1px 5px; font-weight: 600; }
+.room-count.is-invited { color: #111; background: #7fd46f; padding: 1px 5px; font-weight: 600; }
+.join-prompt-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.requests-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #2b2410; border-bottom: 1px solid #5a4a00;
+  font-size: 13px; color: #ffe27a;
+}
+.rq-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 8px; background: rgba(0,0,0,.35); }
+.rq-name { padding: 0; border: 0; background: none; cursor: pointer; font: 600 14px var(--mono); }
+.rq-name:hover { text-decoration: underline; }
+.check-row { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: start; font-size: 13px; color: #d8d3cb; cursor: pointer; }
+.check-row input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--green); }
+.pc-lock-invite { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pc-lock-invite select, .field select {
+  padding: 6px 8px; background: #fff; color: #1a1a1a;
+  border: 2px solid; border-color: #7a7570 #e6e2dc #e6e2dc #7a7570; font: 14px var(--mono);
+  max-width: 100%;
+}
+.chat-head .btn-sm { font-size: 13px; padding: 5px 8px; }
+
+/* ------------------------------------------------------------- invite links */
+.invite-link {
+  padding: 12px;
+  background: #000; color: var(--green-text);
+  font: 600 14px/1.4 var(--mono);
+  user-select: all; overflow-wrap: anywhere;
+}
+.invite-meta { color: var(--text-dim); font-size: 12px !important; }
+.invite-list-wrap { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.invite-list-wrap .pc-admin-label { color: var(--text-dim); }
+.invite-list { display: flex; flex-direction: column; gap: 4px; }
+.invite-row { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 4px 6px; }
+.invite-row.is-current { background: #34302c; }
+.invite-pick { padding: 0; border: 0; background: none; cursor: pointer; color: var(--green-text); font: 600 13px var(--mono); }
+.invite-row-meta { font-size: 12px; color: var(--text-dim); }

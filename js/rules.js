@@ -25,7 +25,9 @@
     spam_wait_seconds: 300,
     image_lock_seconds: 600,
     wipe_at_words: 1000000,
-    total_words: 0
+    total_words: 0,
+    invite_days: 7,
+    max_active_invites: 5
   };
 
   const ERRORS = {
@@ -42,8 +44,14 @@
     GROUP_NAME_INVALID: 'Use 2 to 24 lowercase letters, numbers or _.',
     GROUP_NAME_TAKEN: 'A group with that name already exists.',
     TOO_MANY_GROUPS: 'Group limit reached.',
-    TOO_MANY_INVITES: 'You already have 5 unused invite codes. Use those first.',
-    INVITE_INVALID: 'That invite code does not work. It may already be used.',
+    TOO_MANY_INVITES: 'You already have 5 live invite links. Switch one off or reuse it.',
+    INVITE_INVALID: 'That invite link does not work. It may have been switched off.',
+    INVITE_EXPIRED: 'That invite link has expired. Ask whoever sent it for a fresh one.',
+    ALREADY_MEMBER: 'You are already a member.',
+    NOT_SIGNED_IN: 'Sign in first.',
+    CONFIRM_EMAIL: 'Check your email for a confirmation link, then come back and sign in.',
+    GROUP_LOCKED: 'This group is locked. Ask to join and an admin will decide.',
+    NOT_LOCKED: 'That group is open. Just join it.',
     USERNAME_INVALID: 'Screen names are 3 to 20 letters, numbers or _.',
     USERNAME_TAKEN: 'That screen name is taken.',
     REQUEST_NOT_FOUND: 'That friend request is no longer open.',
@@ -67,6 +75,11 @@
     if (code) return ERRORS[code];
     const msg = String((err && err.message) || err || '');
     if (/failed to fetch|network/i.test(msg)) return 'No carrier. Check your connection and try again.';
+    if (/invalid login credentials/i.test(msg)) return 'Wrong email or password.';
+    if (/already registered|already been registered/i.test(msg)) return 'That email already has an account. Sign in instead.';
+    if (/password should be at least/i.test(msg)) return 'Passwords need at least 6 characters.';
+    if (/provider is not enabled|unsupported provider/i.test(msg)) return 'Google sign-in is not switched on yet. The site owner needs to finish setting it up.';
+    if (/email not confirmed/i.test(msg)) return 'Confirm your email first: check your inbox for the link.';
     if (/payload too large|exceeded|size/i.test(msg)) return 'That image is too big (5 MB max).';
     return msg || 'Something went wrong. Try again.';
   }

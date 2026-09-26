@@ -15,7 +15,8 @@ These are enforced by the database itself (`supabase/schema.sql`), so nobody can
 | Images | Allowed in Global chat and groups. After sending one, you can't send anything for 10 minutes |
 | The big wipe | When Global chat and all groups together reach 1,000,000 words, every message in them is erased and everyone starts on a blank page. Groups themselves stay. Friend chats are not counted or erased |
 | Friends | Send a request, the other person accepts, then you get a private chat. Up to 200 words per message, no images |
-| Joining | Invite code only. Every member can make up to 5 unused codes at a time |
+| Joining | Invite links only. Any member can make one: it works for 7 days, for any number of people, until its creator or an admin switches it off. Up to 5 live links per member |
+| Signing in | Google, or email + password |
 
 Every number above lives in the `settings` table. Change it there (Supabase > Table Editor > settings) and it takes effect immediately, no code change.
 
@@ -28,46 +29,72 @@ Every number above lives in the `settings` table. Change it there (Supabase > Ta
 - **Admins can't be banned directly.** Make them a regular first. The founder can never be banned.
 - **Every admin action is announced** in Global chat, IRC style: `*** ADMIN_Jen sets mode +o cyberSuze (now an admin)`.
 
+## Locked groups
+
+- **Only admins can create locked groups** (tick "Locked group" in Create group), or lock an existing group with the **Lock group** button at the top of it.
+- Everyone can see a locked group exists (it has a small padlock), but only members can read it.
+- **To get in**, someone presses **Ask to join**, and any admin can **Let in** or say **No** from a bar at the top of the group. Or an admin invites them from their member card (**Invite to group**), and they press **Join room**.
+- Admins can walk into any locked group. Unlocking a group lets anyone join and clears waiting requests.
+
 ## Try it without setting anything up
 
 Download the repo and double-click `index.html`. With no Supabase details in `js/config.js`, it runs in **demo mode**: pretend people, pretend messages, the same rules, nothing saved. In the demo you are the founder, so you can try every admin tool.
 
-## Put it online (about 30 minutes, no coding)
+## Put it online (about 45 minutes, no coding)
 
 ### 1. Create the database
 
 1. Sign up at [supabase.com](https://supabase.com) and click **New project**. Pick the region closest to your friends (for Kerala, **Mumbai**). Save the database password somewhere safe.
 2. When the project is ready, open **SQL Editor** > **New query**.
 3. Open `supabase/schema.sql` from this repo, copy all of it, paste it in, and click **Run**.
-4. The result at the bottom shows `your_first_invite_code`. Copy it. The first account created with it becomes the room operator **[OP]**.
+4. The result at the bottom shows `your_first_invite_code` (valid for 30 days). Copy it. The first person to join with it becomes the **founder**.
 
-### 2. Turn off email confirmation (recommended)
+### 2. Turn off email confirmation
 
-Supabase's built-in email sender sends only 2 emails an hour, and only to people on your Supabase team, so confirmation emails would never reach your friends ([Supabase docs](https://supabase.com/docs/guides/auth/auth-smtp)). Since nobody can join without an invite code anyway, skip confirmation:
+Supabase's built-in email sender sends only 2 emails an hour, and only to people on your Supabase team, so confirmation emails would never reach your friends ([Supabase docs](https://supabase.com/docs/guides/auth/auth-smtp)). Since nobody can join without an invite link anyway, skip confirmation:
 
 **Authentication** > **Sign In / Providers** > **Email** > switch off **Confirm email** > **Save**.
 
-To send real emails (confirmations, password resets) you need your own email sender, such as Resend, connected under **Authentication** > **Emails** > **SMTP Settings**. That usually needs your own domain.
+This also means **"Forgot password?" emails won't arrive** until you connect your own email sender (for example Resend) under **Authentication** > **Emails** > **SMTP Settings**, which usually needs your own domain. People who join with Google never need a password.
 
-### 3. Connect the page to the database
+### 3. Switch on Google sign-in
+
+In **Google Cloud Console** ([console.cloud.google.com](https://console.cloud.google.com)):
+
+1. Create a project (any name, e.g. "Pazhampori chat").
+2. Open **Google Auth Platform** (or **APIs & Services** > **OAuth consent screen**) and set it up: app name "Pazhampori chat", your email as support email, audience **External**.
+3. Under **Data Access / Scopes**, keep only the basic ones: `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile`.
+4. Under **Audience**, press **Publish app** so it's **In production**. With only those basic scopes Google doesn't require a review, and people don't see a warning ([Google's rules](https://support.google.com/cloud/answer/15549945)). If you leave it in Testing, only 100 people you list by hand can sign in.
+5. Under **Clients** (or **Credentials**), create an **OAuth client ID** of type **Web application**.
+   - **Authorized JavaScript origins:** your site, e.g. `https://vickiekuttan.github.io`
+   - **Authorized redirect URIs:** the **Callback URL** shown on Supabase's Google provider page. It looks like `https://YOUR-PROJECT.supabase.co/auth/v1/callback`
+6. Copy the **Client ID** and **Client secret**.
+
+Then in Supabase: **Authentication** > **Sign In / Providers** > **Google** > switch it on, paste the Client ID and Client secret, and **Save**.
+
+### 4. Connect the page to the database
 
 1. In Supabase open **Project Settings** > **API** (or **API Keys**). Copy the **Project URL** and the **anon / publishable** key.
 2. On GitHub, open `js/config.js`, click the pencil icon, paste both values between the quotes, and click **Commit changes**.
 
 The anon key is designed to be public. The rules in the database are what keep the chat safe. Never paste the **service_role / secret** key anywhere in this repo.
 
-### 4. Publish it
+### 5. Publish it
 
 **GitHub Pages** (free, same place as the code):
 
 1. In the repo, go to **Settings** > **Pages**.
 2. Under **Build and deployment**, choose **Deploy from a branch**, branch **main**, folder **/ (root)**, then **Save**.
-3. After a minute the page shows your site's address, like `https://yourname.github.io/pazhampori-chat/`.
-4. Back in Supabase: **Authentication** > **URL Configuration** > set **Site URL** to that address.
+3. After a minute the page shows your site's address: `https://vickiekuttan.github.io/Pazhampori-Chat/`.
+4. Back in Supabase: **Authentication** > **URL Configuration**. Set **Site URL** to that address, and add the same address under **Redirect URLs**. Without this, Google sign-in sends people to the wrong place.
 
-### 5. Sign on
+### 6. Join as the founder
 
-Open your site, choose **I have an invite**, and use the code from step 1. Then press **Invite** in the toolbar to make codes for your friends.
+Open your site with your first invite code on the end:
+
+`https://vickiekuttan.github.io/Pazhampori-Chat/#invite=YOUR_CODE`
+
+Pick your screen name and join with Google or email. Then press **Invite** in the toolbar to make links for your friends.
 
 ## Free plan limits to know about
 
@@ -84,11 +111,13 @@ Checked against [supabase.com/pricing](https://supabase.com/pricing) in Septembe
 - **Who is online is not private.** "Online" and "typing" signals use a Supabase Realtime channel that anyone holding the public key could listen to. They carry only random account IDs and room IDs, never names or messages.
 - **Bans are per account, not per person.** A banned person could come back with a new email if someone gives them a fresh invite code.
 - **No message deleting yet.** Admins can ban people but can't remove individual messages or groups.
+- **Anyone can sign in with Google, but only invited people become members.** Someone without an invite just sees "you need an invite link". Their empty sign-in still appears under **Authentication** > **Users**; delete those now and then if you like.
+- **Invite links are reusable for 7 days.** If a link gets posted somewhere public, switch it off from the **Invite** window. The member card doesn't show who invited whom yet, but it's recorded (`profiles.invited_by`).
 - A "word" is any run of characters between spaces, so `a-b-c-d` counts as one word.
 
 ## Check the rules yourself
 
-The database rules come with 92 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
+The database rules come with 130 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
 
 ```bash
 npm install

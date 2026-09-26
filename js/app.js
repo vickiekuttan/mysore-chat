@@ -24,6 +24,8 @@
     rooms: new Map(),
     members: new Map(),          // roomId -> Set(userId)
     requests: new Map(),         // id -> friend request
+    roomReqs: new Map(),         // "roomId|userId" -> locked-group invite or request
+    invites: [],                 // my live invite links
     settings: Object.assign({}, PZ.DEFAULT_SETTINGS),
     presence: {},
     presenceSynced: false,
@@ -52,6 +54,11 @@
     const s = st.members.get(roomId);
     return !!(s && s.has(st.meId));
   };
+  const amAdmin = () => { const p = me(); return !!(p && p.is_admin && !p.banned_at); };
+  const reqKey = (roomId, userId) => roomId + '|' + userId;
+  const myRoomReq = (roomId) => st.roomReqs.get(reqKey(roomId, st.meId));
+  const pendingRequests = (roomId) => [...st.roomReqs.values()].filter((q) => q.room_id === roomId && q.kind === 'request');
+  const LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><rect x="1.5" y="6" width="9" height="7" fill="currentColor"/><path d="M3.6 6V4.2a2.4 2.4 0 0 1 4.8 0V6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
   const memberCount = (r) => r.kind === 'global' ? st.profiles.size : (st.members.get(r.id) || new Set()).size;
   const nameOf = (id) => { const p = st.profiles.get(id); return p ? p.username : 'someone'; };
   const colorOf = (id) => { const p = st.profiles.get(id); return p && /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#9a9a9a'; };
@@ -147,13 +154,25 @@
       icon.style.color = ICON_COLORS[r.icon] || '#f08a24';
     }
     const name = el('span', 'room-name', roomLabel(r));
+    if (r.locked) {
+      const lock = el('span', 'room-lock');
+      lock.innerHTML = LOCK_SVG;
+      lock.title = 'Locked group';
+      name.append(lock);
+    }
     const unread = st.unread.get(r.id) || 0;
-    const count = el('span', 'room-count' + (unread ? ' is-unread' : ''), unread ? String(unread) : String(memberCount(r)));
-    count.title = unread ? `${unread} new` : `${memberCount(r)} members`;
+    const waiting = r.locked && amAdmin() ? pendingRequests(r.id).length : 0;
+    const mine = !joined && myRoomReq(r.id);
+    let count;
+    if (unread) count = el('span', 'room-count is-unread', String(unread));
+    else if (waiting) count = el('span', 'room-count is-waiting', `${waiting}?`);
+    else if (mine && mine.kind === 'invite') count = el('span', 'room-count is-invited', 'invited');
+    else count = el('span', 'room-count', String(memberCount(r)));
+    count.title = unread ? `${unread} new` : waiting ? `${waiting} waiting to get in` : mine ? 'An admin invited you' : `${memberCount(r)} members`;
     b.append(icon, name, count);
-    b.title = joined ? roomLabel(r) : `${roomLabel(r)}: double-click to join`;
+    b.title = joined ? roomLabel(r) : r.locked ? `${roomLabel(r)}: locked group` : `${roomLabel(r)}: double-click to join`;
     b.addEventListener('click', () => { openRoom(r.id); closeOverlays(); });
-    b.addEventListener('dblclick', () => { if (!joined) joinRoom(r.id); });
+    b.addEventListener('dblclick', () => { if (!joined && (!r.locked || amAdmin() || (mine && mine.kind === 'invite'))) joinRoom(r.id); });
     return b;
   }
 
@@ -171,11 +190,11 @@
     note('');
     renderRooms(); renderHead(); renderComposer(); renderPeople();
     const joined = isMemberOf(roomId);
-    $('join-prompt').hidden = joined;
     $('composer').hidden = !joined;
+    renderJoinPrompt();
+    renderRequestsBar();
     const r = room();
     if (!joined) {
-      $('join-prompt-text').textContent = `You're not in #${r.name} yet. Join to read and post.`;
       $('messages').textContent = '';
       $('messages').append(el('p', 'empty-note', `#${r.name} has ${memberCount(r)} member${memberCount(r) === 1 ? '' : 's'}.`));
       pushPresence();
@@ -202,6 +221,10 @@
     const r = room();
     if (!r) return;
     $('room-title').textContent = r.kind === 'global' ? 'Global Chat' : r.kind === 'dm' ? '@' + nameOf(dmPartner(r)) : '#' + r.name;
+    const lockBtn = $('btn-lock-toggle');
+    lockBtn.hidden = !(r.kind === 'group' && amAdmin());
+    lockBtn.textContent = r.locked ? 'Unlock group' : 'Lock group';
+    lockBtn.title = r.locked ? 'Let anyone join this group' : 'Only people an admin lets in can join';
     const online = onlineIds();
     const stack = $('avatar-stack');
     stack.textContent = '';
@@ -239,13 +262,15 @@
       : `*** ${who} sets mode -o ${target} (now a regular)`;
     if (m.body === 'BANNED') return `*** ${target} was banned by ${who}`;
     if (m.body === 'UNBANNED') return `*** ${target} was unbanned by ${who}`;
+    if (m.body === 'LOCKED') return `*** ${who} locked #${r ? r.name : 'this group'}: invite only from now on`;
+    if (m.body === 'UNLOCKED') return `*** ${who} unlocked #${r ? r.name : 'this group'}: anyone can join`;
     return `★ ${m.body}`;
   }
 
   function messageRow(m, flash) {
     const r = st.rooms.get(m.room_id);
     if (m.kind === 'system' || m.kind === 'local') {
-      const mode = { PROMOTED: ' sys-mode', DEMOTED: ' sys-mode', BANNED: ' sys-ban', UNBANNED: ' sys-mode', WIPE: ' sys-wipe' }[m.body] || '';
+      const mode = { PROMOTED: ' sys-mode', DEMOTED: ' sys-mode', BANNED: ' sys-ban', UNBANNED: ' sys-mode', LOCKED: ' sys-mode', UNLOCKED: ' sys-mode', WIPE: ' sys-wipe' }[m.body] || '';
       return el('div', 'sys' + (m.kind === 'local' ? '' : mode), m.kind === 'local' ? m.body : systemText(m, r));
     }
     const p = st.profiles.get(m.user_id);
@@ -611,6 +636,7 @@
     if (!st.profiles.has(id)) return;
     st.cardId = id;
     st.cardConfirm = null;
+    st.cardNote = '';
     $('pc-error').hidden = true;
     renderPersonCard();
     const d = $('dlg-person');
@@ -717,6 +743,40 @@
       if (p.is_admin) { ban.disabled = true; hint.textContent = 'Make them a regular first if you need to ban them.'; }
       aa.append(ban);
     }
+
+    // Invite them into a locked group they aren't in yet.
+    const li = $('pc-lock-invite');
+    const groups = isMe || p.banned_at ? [] : [...st.rooms.values()]
+      .filter((r) => r.kind === 'group' && r.locked && !(st.members.get(r.id) || new Set()).has(id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    li.hidden = !groups.length;
+    const sel = $('pc-lock-select');
+    const keep = sel.value;
+    sel.textContent = '';
+    groups.forEach((r) => {
+      const q = st.roomReqs.get(reqKey(r.id, id));
+      const o = el('option', null, '#' + r.name + (q ? (q.kind === 'invite' ? ' (invited)' : ' (asked to join)') : ''));
+      o.value = r.id;
+      sel.append(o);
+    });
+    if (groups.some((r) => r.id === keep)) sel.value = keep;
+    if (st.cardNote && !hint.textContent) hint.textContent = st.cardNote;
+  }
+
+  async function inviteToLockedGroup() {
+    const roomId = $('pc-lock-select').value;
+    const id = st.cardId;
+    const r = st.rooms.get(roomId);
+    if (!roomId || !id || !r) return;
+    await cardAction(async () => {
+      const res = await backend.inviteToGroup(roomId, id);
+      if (res === 'ADDED') addMember(roomId, id);
+      else if (res === 'INVITED') st.roomReqs.set(reqKey(roomId, id), { room_id: roomId, user_id: id, kind: 'invite', by_user: st.meId });
+      renderRooms();
+    });
+    const p = st.profiles.get(id);
+    st.cardNote = `${p ? p.username : 'They'} ${st.members.get(roomId) && st.members.get(roomId).has(id) ? 'is now in' : 'has been invited to'} #${r.name}.`;
+    renderPersonCard();
   }
 
   async function setAdmin(id, admin) {
@@ -819,9 +879,111 @@
     try {
       await backend.joinRoom(roomId);
       addMember(roomId, st.meId);
+      st.roomReqs.delete(reqKey(roomId, st.meId));
       st.msgs.delete(roomId);
       await openRoom(roomId);
+    } catch (e) { note(PZ.friendlyError(e), 'error'); renderJoinPrompt(); }
+  }
+
+  // The bar shown instead of the composer when you're not in a group.
+  function renderJoinPrompt() {
+    const r = room();
+    const box = $('join-prompt');
+    if (!r || r.kind !== 'group' || isMemberOf(r.id)) { box.hidden = true; return; }
+    box.hidden = false;
+    const btn = $('btn-join-here');
+    const alt = $('btn-join-alt');
+    const text = $('join-prompt-text');
+    const q = myRoomReq(r.id);
+    btn.disabled = false;
+    btn.className = 'btn';
+    alt.hidden = true;
+    if (!r.locked) {
+      text.textContent = `You're not in #${r.name} yet. Join to read and post.`;
+      btn.textContent = 'Join room'; btn.dataset.action = 'join';
+    } else if (amAdmin()) {
+      text.textContent = `#${r.name} is locked. As an admin you can walk right in.`;
+      btn.textContent = 'Join room'; btn.dataset.action = 'join';
+    } else if (q && q.kind === 'invite') {
+      text.textContent = `An admin invited you to #${r.name}.`;
+      btn.textContent = 'Join room'; btn.dataset.action = 'join';
+      alt.hidden = false; alt.textContent = 'Decline'; alt.dataset.action = 'dismiss';
+    } else if (q) {
+      text.textContent = `You asked to join #${r.name}. An admin will let you in.`;
+      btn.textContent = 'Withdraw request'; btn.dataset.action = 'dismiss'; btn.className = 'btn btn-dark';
+    } else {
+      text.textContent = `#${r.name} is locked. Ask to join and an admin will decide.`;
+      btn.textContent = 'Ask to join'; btn.dataset.action = 'request';
+    }
+  }
+
+  async function joinPromptAction(action) {
+    const r = room();
+    if (!r) return;
+    $('btn-join-here').disabled = true;
+    try {
+      if (action === 'join') return await joinRoom(r.id);
+      if (action === 'request') {
+        const res = await backend.requestToJoin(r.id);
+        if (res === 'JOINED' || res === 'ALREADY_IN') return await joinRoom(r.id);
+        st.roomReqs.set(reqKey(r.id, st.meId), { room_id: r.id, user_id: st.meId, kind: 'request', by_user: st.meId });
+        note(`Request sent. You'll be let into #${r.name} when an admin says yes.`, 'ok');
+      }
+      if (action === 'dismiss') {
+        await backend.dismissRoomRequest(r.id);
+        st.roomReqs.delete(reqKey(r.id, st.meId));
+      }
     } catch (e) { note(PZ.friendlyError(e), 'error'); }
+    renderJoinPrompt(); renderRooms();
+  }
+
+  // Admins inside a locked group see who is waiting to get in.
+  function renderRequestsBar() {
+    const bar = $('requests-bar');
+    const r = room();
+    const list = r && r.locked && amAdmin() && isMemberOf(r.id) ? pendingRequests(r.id).filter((q) => st.profiles.has(q.user_id)) : [];
+    bar.hidden = !list.length;
+    bar.textContent = '';
+    if (!list.length) return;
+    bar.append(el('span', 'rq-label', `${list.length} waiting to get in:`));
+    list.forEach((q) => {
+      const chip = el('span', 'rq-chip');
+      const name = el('button', 'rq-name', nameOf(q.user_id));
+      name.type = 'button';
+      name.style.color = colorOf(q.user_id);
+      name.addEventListener('click', () => openPerson(q.user_id));
+      const yes = el('button', 'btn btn-sm', 'Let in');
+      yes.type = 'button';
+      const no = el('button', 'btn btn-sm btn-dark', 'No');
+      no.type = 'button';
+      const answer = async (accept) => {
+        yes.disabled = no.disabled = true;
+        try {
+          await backend.answerJoinRequest(r.id, q.user_id, accept);
+          st.roomReqs.delete(reqKey(r.id, q.user_id));
+          if (accept) addMember(r.id, q.user_id);
+        } catch (e) { note(PZ.friendlyError(e), 'error'); }
+        renderRequestsBar(); renderRooms();
+      };
+      yes.addEventListener('click', () => answer(true));
+      no.addEventListener('click', () => answer(false));
+      chip.append(name, yes, no);
+      bar.append(chip);
+    });
+  }
+
+  async function toggleLock() {
+    const r = room();
+    if (!r || r.kind !== 'group') return;
+    const btn = $('btn-lock-toggle');
+    btn.disabled = true;
+    try {
+      await backend.setGroupLocked(r.id, !r.locked);
+      r.locked = !r.locked;
+      if (!r.locked) for (const k of [...st.roomReqs.keys()]) if (k.startsWith(r.id + '|')) st.roomReqs.delete(k);
+    } catch (e) { note(PZ.friendlyError(e), 'error'); }
+    btn.disabled = false;
+    renderHead(); renderRooms(); renderRequestsBar(); renderJoinPrompt();
   }
 
   function closeOverlays() {
@@ -837,40 +999,92 @@
       const row = el('div', 'join-row');
       const icon = el('span', 'room-icon', r.icon);
       icon.style.color = ICON_COLORS[r.icon] || '#f08a24';
-      const b = el('button', 'btn btn-sm', 'Join');
+      const name = el('span', 'join-name', r.name);
+      if (r.locked) { const lock = el('span', 'room-lock'); lock.innerHTML = LOCK_SVG; name.append(lock); }
+      const q = myRoomReq(r.id);
+      const open = !r.locked || amAdmin() || (q && q.kind === 'invite');
+      const b = el('button', 'btn btn-sm' + (open ? '' : ' btn-dark'), open ? 'Join' : q ? 'Asked' : 'Ask to join');
       b.type = 'button';
-      b.addEventListener('click', async () => { $('dlg-join').close(); await joinRoom(r.id); });
-      row.append(icon, el('span', 'join-name', r.name), el('span', 'join-count', `${memberCount(r)} members`), b);
+      b.disabled = !open && !!q;
+      b.addEventListener('click', async () => {
+        $('dlg-join').close();
+        if (open) return joinRoom(r.id);
+        await openRoom(r.id);
+        joinPromptAction('request');
+      });
+      row.append(icon, name, el('span', 'join-count', `${memberCount(r)} members`), b);
       list.append(row);
     });
     $('dlg-join').showModal();
   }
 
+  // ---------------------------------------------------------------- invite links
+  const pageBase = () => location.href.split('#')[0].split('?')[0];
+  const linkFor = (code) => `${pageBase()}#invite=${code}`;
+  const fmtDay = (t) => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' });
+
   async function openInviteDialog() {
-    $('invite-code').textContent = '…';
     $('invite-error').hidden = true;
+    $('invite-link').textContent = '…';
+    $('invite-meta').textContent = '';
+    $('invite-explain').textContent = `Anyone with this link can join for ${st.settings.invite_days} days. Send it anywhere: WhatsApp, email, a DM.`;
     $('dlg-invite').showModal();
     try {
-      $('invite-code').textContent = await backend.createInvite();
-    } catch (e) {
-      $('invite-code').textContent = '—';
-      $('invite-error').textContent = PZ.friendlyError(e);
-      $('invite-error').hidden = false;
-    }
+      st.invites = await backend.listInvites();
+      if (!st.invites.length) {
+        await backend.createInvite();
+        st.invites = await backend.listInvites();
+      }
+      renderInvites(st.invites[0] && st.invites[0].code);
+    } catch (e) { inviteError(e); }
+  }
+
+  function inviteError(e) {
+    $('invite-error').textContent = PZ.friendlyError(e);
+    $('invite-error').hidden = false;
+  }
+
+  function renderInvites(selected) {
+    const cur = st.invites.find((i) => i.code === selected) || st.invites[0];
+    st.inviteSelected = cur ? cur.code : null;
+    $('invite-link').textContent = cur ? linkFor(cur.code) : 'No live links. Press New link.';
+    $('invite-meta').textContent = cur ? `Works until ${fmtDay(cur.expires_at)} • ${cur.uses} joined so far` : '';
+    $('invite-copy').disabled = !cur;
+    const list = $('invite-list');
+    list.textContent = '';
+    $('invite-list-wrap').hidden = !st.invites.length;
+    st.invites.forEach((i) => {
+      const row = el('div', 'invite-row' + (cur && i.code === cur.code ? ' is-current' : ''));
+      const pick = el('button', 'invite-pick', `…${i.code.slice(-4)}`);
+      pick.type = 'button';
+      pick.title = 'Show this link';
+      pick.addEventListener('click', () => renderInvites(i.code));
+      const off = el('button', 'btn btn-sm btn-dark', 'Switch off');
+      off.type = 'button';
+      off.addEventListener('click', async () => {
+        off.disabled = true;
+        try { await backend.revokeInvite(i.code); st.invites = await backend.listInvites(); renderInvites(st.inviteSelected); }
+        catch (e) { off.disabled = false; inviteError(e); }
+      });
+      row.append(pick, el('span', 'invite-row-meta', `until ${fmtDay(i.expires_at)} • ${i.uses} joined`), off);
+      list.append(row);
+    });
   }
 
   function openCreateDialog() {
     $('create-name').value = '';
     $('create-error').hidden = true;
+    $('create-locked').checked = false;
+    $('create-locked-row').hidden = !amAdmin();
     const fs = $('create-icons');
     fs.querySelectorAll('label').forEach((n) => n.remove());
     ICONS.forEach((ic, i) => {
       const l = el('label', 'icon-opt');
       const inp = el('input');
       inp.type = 'radio'; inp.name = 'icon'; inp.value = ic; inp.checked = i === 0;
-      const s = el('span', null, ic);
-      s.style.color = ICON_COLORS[ic];
-      l.append(inp, s);
+      const sp = el('span', null, ic);
+      sp.style.color = ICON_COLORS[ic];
+      l.append(inp, sp);
       fs.append(l);
     });
     $('dlg-create').showModal();
@@ -891,87 +1105,141 @@
       const l = el('label', 'color-opt');
       const inp = el('input');
       inp.type = 'radio'; inp.name = 'color'; inp.value = c; inp.checked = c === p.color;
-      const s = el('span');
-      s.style.background = c;
+      const sp = el('span');
+      sp.style.background = c;
       l.title = c;
-      l.append(inp, s);
+      l.append(inp, sp);
       fs.append(l);
     });
     $('dlg-profile').showModal();
   }
 
   // ---------------------------------------------------------------- sign on
-  let authMode = 'signin';
-  function setAuthMode(mode) {
-    authMode = mode;
-    $('tab-signin').classList.toggle('is-active', mode === 'signin');
-    $('tab-signup').classList.toggle('is-active', mode === 'signup');
-    $('tab-signin').setAttribute('aria-selected', String(mode === 'signin'));
-    $('tab-signup').setAttribute('aria-selected', String(mode === 'signup'));
-    document.querySelectorAll('.only-signup').forEach((n) => { n.hidden = mode !== 'signup'; });
-    $('auth-password').autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
-    $('auth-submit').textContent = mode === 'signup' ? 'Create account' : 'Sign on';
-    $('auth-error').hidden = true;
+  // An invite code survives the trip to Google and back in localStorage.
+  const INVITE_KEY = 'pz_invite';
+  const NAME_KEY = 'pz_name';
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* private mode */ } },
+    del(k) { try { localStorage.removeItem(k); } catch (_) { /* private mode */ } }
+  };
+  const PANELS = {
+    signin: 'Sign on to Pazhampori chat',
+    invite: "You're invited",
+    finish: 'One last step',
+    forgot: 'Reset your password',
+    newpass: 'Choose a new password'
+  };
+
+  function inviteFromUrl() {
+    const m = (location.hash + '&' + location.search).match(/[#?&]invite=([A-Za-z0-9]{4,20})/);
+    return m ? m[1].toUpperCase() : null;
   }
 
-  function showSignOn(message) {
+  function showPanel(name, msg) {
     entered = false;
     $('toolbar').hidden = true;
     $('main').hidden = true;
-    $('signon').hidden = false;
     $('banned').hidden = true;
+    $('signon').hidden = false;
     $('sb-you').hidden = true;
-    $('sb-conn').textContent = backend.mode === 'demo' ? 'Demo mode: any email and password will do.' : 'Not connected';
     $('sb-words').textContent = '';
-    if (message) { $('auth-error').textContent = message; $('auth-error').hidden = false; }
+    $('sb-conn').textContent = backend.mode === 'demo' ? 'Demo mode: any email and password will do.' : 'Not connected';
+    Object.keys(PANELS).forEach((k) => { $('panel-' + k).hidden = k !== name; });
+    $('auth-title').textContent = PANELS[name];
+    authMsg(msg && msg.error, msg && msg.ok);
   }
 
-  async function submitAuth(ev) {
-    ev.preventDefault();
-    const email = $('auth-email').value.trim();
-    const password = $('auth-password').value;
-    const err = $('auth-error');
-    err.hidden = true;
-    if (!email || !password) { err.textContent = 'Enter your email and password.'; err.hidden = false; return; }
-    const btn = $('auth-submit');
-    btn.disabled = true;
-    $('modem-line').textContent = 'ATDT 555-0199 … dialing …';
+  function authMsg(error, ok) {
+    $('auth-error').textContent = error || '';
+    $('auth-error').hidden = !error;
+    $('auth-ok').textContent = ok || '';
+    $('auth-ok').hidden = !ok;
+  }
+
+  function busy(btn, on) {
+    if (btn) btn.disabled = on;
+    $('modem-line').textContent = on ? 'ATDT 555-0199 … dialing …' : 'ATDT 555-0199 … CONNECT 56000';
+  }
+
+  async function showInvite(code) {
+    showPanel('invite');
+    $('invite-code-input').value = code || '';
+    $('invite-hello').textContent = "You're invited to Pazhampori chat. Pick a screen name, then join with Google or email.";
+    if (!code) return;
     try {
-      let id;
-      if (authMode === 'signup') {
-        id = await backend.signUp({ email, password, username: $('auth-username').value.trim(), code: $('auth-code').value.trim() });
-      } else {
-        id = await backend.signIn(email, password);
-      }
-      await enterChat(id);
-    } catch (e) {
-      err.textContent = e.code === 'CONFIRM_EMAIL' ? e.message : PZ.friendlyError(e);
-      err.hidden = false;
-      $('modem-line').textContent = 'NO CARRIER';
-    } finally {
-      btn.disabled = false;
+      const state = await backend.checkInvite(code);
+      if (state !== 'OK') authMsg(PZ.ERRORS[state] || PZ.ERRORS.INVITE_INVALID);
+    } catch (_) { /* checked again on join */ }
+  }
+
+  // Checks the invite code and screen name typed on the invite page.
+  async function readInviteForm() {
+    const code = $('invite-code-input').value.trim().toUpperCase();
+    const name = $('invite-username').value.trim();
+    if (!code) throw Object.assign(new Error('INVITE_INVALID'), { code: 'INVITE_INVALID' });
+    const state = await backend.checkInvite(code, name);
+    if (state !== 'OK') throw Object.assign(new Error(state), { code: state });
+    store.set(INVITE_KEY, code);
+    store.set(NAME_KEY, name);
+    return { code, name };
+  }
+
+  let finishingFor = null;
+  // Runs after any sign-in: members go straight in, others finish joining.
+  async function afterSignIn(id) {
+    if (backend.inRecovery()) return showPanel('newpass');
+    if (!id || finishingFor === id || (entered && st.meId === id)) return;
+    finishingFor = id;
+    st.meId = id;
+    let self = null;
+    try { self = await backend.loadSelf(); }
+    catch (e) { finishingFor = null; return showPanel('signin', { error: PZ.friendlyError(e) }); }
+    if (self) {
+      store.del(INVITE_KEY); store.del(NAME_KEY);
+      finishingFor = null;
+      return enterChat(id, self);
     }
+    const code = store.get(INVITE_KEY);
+    const name = store.get(NAME_KEY);
+    if (code && name) {
+      try {
+        await backend.joinWithInvite(code, name);
+        store.del(INVITE_KEY); store.del(NAME_KEY);
+        finishingFor = null;
+        return enterChat(id);
+      } catch (e) {
+        finishingFor = null;
+        return showFinish(code, name, PZ.friendlyError(e));
+      }
+    }
+    finishingFor = null;
+    showFinish(code || '', name || '', code ? null
+      : "You're signed in, but you're not a member yet. You need an invite link from someone who is.");
+  }
+
+  function showFinish(code, name, error) {
+    showPanel('finish', { error });
+    $('finish-code').value = code || '';
+    $('finish-username').value = name || '';
+    $('finish-text').textContent = code ? 'Almost in. Check your screen name and enter.' : 'Paste the invite code from your link, pick a screen name, and enter.';
   }
 
   // ---------------------------------------------------------------- boot
-  async function enterChat(id) {
+  async function enterChat(id, self) {
     if (entered && st.meId === id) return;
     entered = true;
     st.meId = id;
-    let self = null;
-    try { self = await backend.loadSelf(); } catch (_) { /* loadAll below reports errors */ }
+    if (!self) { try { self = await backend.loadSelf(); } catch (_) { /* loadAll below reports errors */ } }
     if (self && self.banned_at) return showBanned();
     let d;
-    try { d = await backend.loadAll(); } catch (e) { entered = false; return showSignOn(PZ.friendlyError(e)); }
+    try { d = await backend.loadAll(); } catch (e) { entered = false; return showPanel('signin', { error: PZ.friendlyError(e) }); }
     st.profiles.clear(); d.profiles.forEach((p) => st.profiles.set(p.id, p));
-    if (!st.profiles.has(id)) {
-      entered = false;
-      await backend.signOut();
-      return showSignOn('This account has no screen name. Sign up again with an invite code.');
-    }
+    if (!st.profiles.has(id)) { entered = false; return showFinish(store.get(INVITE_KEY), store.get(NAME_KEY)); }
     st.rooms.clear(); d.rooms.forEach((r) => st.rooms.set(r.id, r));
     st.members.clear(); d.memberships.forEach((m) => addMember(m.room_id, m.user_id));
     st.requests.clear(); d.friendRequests.forEach((r) => st.requests.set(r.id, r));
+    st.roomReqs.clear(); (d.roomRequests || []).forEach((q) => st.roomReqs.set(reqKey(q.room_id, q.user_id), q));
     st.settings = Object.assign({}, PZ.DEFAULT_SETTINGS, d.settings);
     st.msgs.clear(); st.unread.clear(); st.local.clear();
 
@@ -986,14 +1254,37 @@
         st.profiles.set(p.id, Object.assign(st.profiles.get(p.id) || {}, p));
         if (p.id === st.meId && p.banned_at) return showBanned();
         renderPeople(); renderStatus();
-        if (p.id === st.meId) renderComposer();
+        if (p.id === st.meId) { renderComposer(); renderHead(); renderJoinPrompt(); renderRequestsBar(); }
         if ($('dlg-person').open) renderPersonCard();
       },
-      room: (r) => { st.rooms.set(r.id, r); renderRooms(); renderPeople(); },
+      room: (r) => {
+        st.rooms.set(r.id, Object.assign(st.rooms.get(r.id) || {}, r));
+        renderRooms(); renderPeople();
+        if (r.id === st.current) { renderHead(); renderJoinPrompt(); renderRequestsBar(); }
+      },
       membership: (op, m) => {
         if (op === 'add') addMember(m.room_id, m.user_id);
         else if (st.members.has(m.room_id)) st.members.get(m.room_id).delete(m.user_id);
+        if (m.user_id === st.meId && m.room_id === st.current && op === 'add' && $('composer').hidden) {
+          st.roomReqs.delete(reqKey(m.room_id, st.meId));
+          st.msgs.delete(m.room_id);
+          openRoom(m.room_id);
+        }
         renderRooms();
+        if ($('dlg-person').open) renderPersonCard();
+      },
+      roomRequest: (op, q) => {
+        const k = reqKey(q.room_id, q.user_id);
+        if (op === 'add') st.roomReqs.set(k, q); else st.roomReqs.delete(k);
+        const r = st.rooms.get(q.room_id);
+        if (op === 'add' && r && q.user_id === st.meId && q.kind === 'invite') {
+          note(`An admin invited you to #${r.name}. It's in your room list.`, 'ok');
+          flashRoom(q.room_id);
+        }
+        if (op === 'add' && r && q.kind === 'request' && amAdmin()) flashRoom(q.room_id);
+        renderRooms();
+        if (q.room_id === st.current) { renderJoinPrompt(); renderRequestsBar(); }
+        if ($('dlg-person').open) renderPersonCard();
       },
       friendRequest: (r) => {
         for (const [k, v] of st.requests) if (String(k).startsWith('local-') && v.to_user === r.to_user && v.from_user === r.from_user) st.requests.delete(k);
@@ -1002,7 +1293,7 @@
         renderPeople();
         if ($('dlg-person').open) renderPersonCard();
       },
-      settings: (s) => { st.settings = Object.assign(st.settings, s); renderStatus(); renderComposer(); },
+      settings: (sv) => { st.settings = Object.assign(st.settings, sv); renderStatus(); renderComposer(); },
       presence: onPresence,
       connection: (c) => { st.conn = c; renderStatus(); }
     });
@@ -1012,14 +1303,103 @@
   }
 
   function wire() {
-    $('tab-signin').addEventListener('click', () => setAuthMode('signin'));
-    $('tab-signup').addEventListener('click', () => setAuthMode('signup'));
-    $('form-auth').addEventListener('submit', submitAuth);
+    // Sign on
+    $('btn-google-signin').addEventListener('click', async (e) => {
+      busy(e.currentTarget, true);
+      try {
+        await backend.signInWithGoogle();
+        if (backend.mode === 'demo') await afterSignIn(await backend.currentUserId());
+      } catch (err) { authMsg(PZ.friendlyError(err)); busy(e.currentTarget, false); }
+    });
+    $('form-signin').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = $('signin-email').value.trim();
+      const pw = $('signin-password').value;
+      if (!email || !pw) return authMsg('Enter your email and password.');
+      busy($('signin-submit'), true);
+      try { await afterSignIn(await backend.signIn(email, pw)); }
+      catch (err) { authMsg(PZ.friendlyError(err)); $('modem-line').textContent = 'NO CARRIER'; }
+      finally { $('signin-submit').disabled = false; }
+    });
+    $('link-forgot').addEventListener('click', () => { showPanel('forgot'); $('forgot-email').value = $('signin-email').value; });
+    $('link-forgot-back').addEventListener('click', () => showPanel('signin'));
+    $('link-have-invite').addEventListener('click', () => showInvite(store.get(INVITE_KEY) || ''));
+    $('link-back-signin').addEventListener('click', () => showPanel('signin'));
 
+    $('btn-google-join').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      authMsg();
+      busy(btn, true);
+      try {
+        await readInviteForm();
+        await backend.signInWithGoogle();
+        if (backend.mode === 'demo') await afterSignIn(await backend.currentUserId());
+      } catch (err) { authMsg(PZ.friendlyError(err)); busy(btn, false); }
+    });
+    $('form-join-email').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      authMsg();
+      const email = $('join-email').value.trim();
+      const pw = $('join-password').value;
+      if (!email || !pw) return authMsg('Enter an email and a password.');
+      if (pw.length < 6) return authMsg('Passwords need at least 6 characters.');
+      busy($('join-submit'), true);
+      try {
+        await readInviteForm();
+        await afterSignIn(await backend.signUpEmail(email, pw));
+      } catch (err) { authMsg(PZ.friendlyError(err)); $('modem-line').textContent = 'NO CARRIER'; }
+      finally { $('join-submit').disabled = false; }
+    });
+
+    $('form-finish').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      authMsg();
+      const code = $('finish-code').value.trim().toUpperCase();
+      const name = $('finish-username').value.trim();
+      busy($('finish-submit'), true);
+      try {
+        await backend.joinWithInvite(code, name);
+        store.del(INVITE_KEY); store.del(NAME_KEY);
+        await enterChat(st.meId);
+      } catch (err) { authMsg(PZ.friendlyError(err)); }
+      finally { busy($('finish-submit'), false); }
+    });
+    $('link-finish-signout').addEventListener('click', async () => {
+      store.del(INVITE_KEY); store.del(NAME_KEY);
+      try { await backend.signOut(); } finally { location.reload(); }
+    });
+
+    $('form-forgot').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = $('forgot-email').value.trim();
+      if (!email) return authMsg('Enter your email.');
+      busy($('forgot-submit'), true);
+      try {
+        await backend.sendPasswordReset(email);
+        authMsg(null, 'If that email has an account, a reset link is on its way. Check your spam folder too.');
+      } catch (err) { authMsg(PZ.friendlyError(err)); }
+      finally { busy($('forgot-submit'), false); }
+    });
+    $('form-newpass').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pw = $('newpass').value;
+      if (pw.length < 6) return authMsg('Passwords need at least 6 characters.');
+      busy($('newpass-submit'), true);
+      try {
+        await backend.setNewPassword(pw);
+        await afterSignIn(await backend.currentUserId());
+      } catch (err) { authMsg(PZ.friendlyError(err)); }
+      finally { busy($('newpass-submit'), false); }
+    });
+
+    // Toolbar and rooms
     $('btn-join').addEventListener('click', openJoinDialog);
     $('btn-invite').addEventListener('click', openInviteDialog);
     $('btn-create').addEventListener('click', openCreateDialog);
-    $('btn-join-here').addEventListener('click', () => joinRoom(st.current));
+    $('btn-join-here').addEventListener('click', (e) => joinPromptAction(e.currentTarget.dataset.action));
+    $('btn-join-alt').addEventListener('click', (e) => joinPromptAction(e.currentTarget.dataset.action));
+    $('btn-lock-toggle').addEventListener('click', toggleLock);
+    $('pc-lock-btn').addEventListener('click', inviteToLockedGroup);
     $('btn-show-rooms').addEventListener('click', () => { document.body.classList.remove('show-people'); document.body.classList.toggle('show-rooms'); });
     $('btn-show-people').addEventListener('click', () => { document.body.classList.remove('show-rooms'); document.body.classList.toggle('show-people'); });
     $('btn-close-people').addEventListener('click', closeOverlays);
@@ -1032,6 +1412,7 @@
     $('ptab-all').addEventListener('click', () => setPeopleTab('all'));
     $('ptab-friends').addEventListener('click', () => setPeopleTab('friends'));
 
+    // Composer
     const input = $('msg-input');
     input.addEventListener('input', () => { autosize(); note(''); renderComposer(); if (input.value.trim()) startTyping(); else stopTyping(); markActive(); });
     input.addEventListener('keydown', (e) => {
@@ -1065,14 +1446,16 @@
       if ($('dlg-image').returnValue === 'send' && f) send(f);
     });
 
+    // Dialogs
     $('form-create').addEventListener('submit', async (e) => {
       if (e.submitter && e.submitter.value === 'cancel') return;
       e.preventDefault();
       const name = $('create-name').value.trim().toLowerCase();
       const icon = (document.querySelector('#create-icons input:checked') || {}).value || '#';
+      const locked = amAdmin() && $('create-locked').checked;
       $('create-submit').disabled = true;
       try {
-        const id = await backend.createGroup(name, icon);
+        const id = await backend.createGroup(name, icon, locked);
         $('dlg-create').close();
         await refreshSocial();
         st.msgs.delete(id);
@@ -1084,14 +1467,25 @@
     });
 
     $('invite-copy').addEventListener('click', async () => {
-      const code = $('invite-code').textContent;
-      try { await navigator.clipboard.writeText(code); $('invite-copy').textContent = 'Copied'; }
+      const text = st.inviteSelected ? linkFor(st.inviteSelected) : '';
+      if (!text) return;
+      try { await navigator.clipboard.writeText(text); $('invite-copy').textContent = 'Copied'; }
       catch (_) {
-        const r = document.createRange(); r.selectNodeContents($('invite-code'));
-        const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+        const r = document.createRange(); r.selectNodeContents($('invite-link'));
+        const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
         $('invite-copy').textContent = 'Press Ctrl+C';
       }
-      setTimeout(() => { $('invite-copy').textContent = 'Copy code'; }, 2000);
+      setTimeout(() => { $('invite-copy').textContent = 'Copy link'; }, 2000);
+    });
+    $('invite-new').addEventListener('click', async () => {
+      $('invite-error').hidden = true;
+      $('invite-new').disabled = true;
+      try {
+        const made = await backend.createInvite();
+        st.invites = await backend.listInvites();
+        renderInvites(made.code);
+      } catch (e) { inviteError(e); }
+      finally { $('invite-new').disabled = false; }
     });
 
     $('sb-you').addEventListener('click', openProfileDialog);
@@ -1142,17 +1536,27 @@
 
   async function start() {
     wire();
-    setAuthMode('signin');
+    const linkCode = inviteFromUrl();
+    if (linkCode) store.set(INVITE_KEY, linkCode);
     const live = cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY;
     if (live && !window.supabase) {
       backend = PZ.createDemoBackend();
-      return showSignOn('Could not load the Supabase library. Check your internet connection and reload.');
+      return showPanel('signin', { error: 'Could not load the Supabase library. Check your internet connection and reload.' });
     }
     backend = live ? PZ.createSupabaseBackend(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : PZ.createDemoBackend();
     document.body.classList.toggle('is-demo', backend.mode === 'demo');
-    backend.onAuthChange((id) => { if (id) enterChat(id); else if (entered) location.reload(); });
+    backend.onAuthChange((id, event) => {
+      if (event === 'PASSWORD_RECOVERY') return showPanel('newpass');
+      if (id) afterSignIn(id);
+      else if (entered) location.reload();
+    });
     const id = await backend.currentUserId();
-    if (id) await enterChat(id); else showSignOn();
+    // Tidy the address bar once Supabase has read any ?code= from Google.
+    if (location.hash || location.search) history.replaceState(null, '', location.pathname);
+    if (id) return afterSignIn(id);
+    const code = linkCode || store.get(INVITE_KEY);
+    if (code) return showInvite(code);
+    showPanel('signin');
   }
 
   start();

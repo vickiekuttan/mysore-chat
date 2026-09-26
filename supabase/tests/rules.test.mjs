@@ -42,14 +42,16 @@ async function expectErr(name, uid, sql, params, code) {
   try { await as(uid, sql, params); ok(name, false, '(no error)'); }
   catch (e) { ok(name, !code || e.message.includes(code), `got: ${e.message}`); }
 }
-async function signup(username, code) {
-  await db.exec(`set role supabase_auth_admin;`);
-  try {
-    const r = await db.query(`insert into auth.users (email, raw_user_meta_data) values ($1, $2) returning id`,
-      [username + '@x.test', JSON.stringify({ username, invite_code: code })]);
-    return r.rows[0].id;
-  } finally { await db.exec('reset role;'); }
+// Signing in (Google or email) creates an auth user; joining needs an invite.
+async function signIn(email) {
+  return (await db.query(`insert into auth.users (email) values ($1) returning id`, [email])).rows[0].id;
 }
+async function signup(username, code) {
+  const id = await signIn(username + '@x.test');
+  await as(id, 'select public.join_with_invite($1, $2)', [code, username]);
+  return id;
+}
+const invite = async (uid) => (await as(uid, 'select public.create_invite() c')).rows[0].c.code;
 const su = (sql, p) => db.query(sql, p);
 const NBSP = String.fromCharCode(0xa0), ZWSP = String.fromCharCode(0x200b);
 const words = n => Array.from({ length: n }, (_, i) => 'w' + i).join(' ');
@@ -65,19 +67,41 @@ for (const [t, n] of [['', 0], ['   ', 0], ['hi', 1], ['  a  b\tc\n d ', 4], ['a
   ok(`count_words(${JSON.stringify(t)}) = ${n}`, r.rows[0].n === n, `got ${r.rows[0].n}`);
 }
 
-console.log('# signup');
+console.log('# joining with invite links');
 try { await signup('baduser', 'NOPE'); ok('bad invite rejected', false); } catch (e) { ok('bad invite rejected', e.message.includes('INVITE_INVALID'), e.message); }
 const A = await signup('star_gazer', first);
 let pa = (await su('select * from profiles where id=$1', [A])).rows[0];
 ok('first user is admin (OP)', pa.is_admin === true);
-try { await signup('other', first); ok('used invite rejected', false); } catch (e) { ok('used invite rejected', e.message.includes('INVITE_INVALID')); }
-ok('check_signup as anon: used code', (await as(null, 'select public.check_signup($1,$2) r', [first, 'zz_top'])).rows[0].r === 'INVITE_INVALID');
-const code2 = (await as(A, 'select public.create_invite() c')).rows[0].c;
+await expectErr('joining twice rejected', A, 'select public.join_with_invite($1,$2)', [first, 'star_again'], 'ALREADY_MEMBER');
+const code2 = await invite(A);
+ok('invite link lasts 7 days', (await su(`select round(extract(epoch from expires_at - now())/86400) d from invites where code=$1`, [code2])).rows[0].d == 7);
 ok('check_signup: taken username', (await as(null, 'select public.check_signup($1,$2) r', [code2, 'STAR_GAZER'])).rows[0].r === 'USERNAME_TAKEN');
 ok('check_signup: ok', (await as(null, 'select public.check_signup($1,$2) r', [code2.toLowerCase(), 'cyberSuze'])).rows[0].r === 'OK');
+ok('check_signup: link only', (await as(null, 'select public.check_signup($1) r', [code2])).rows[0].r === 'OK');
 const B = await signup('cyberSuze', code2);
-const C = await signup('pixel_pete', (await as(A, 'select public.create_invite() c')).rows[0].c);
+const C = await signup('pixel_pete', code2);
+ok('one link brings in several people', (await su('select uses from invites where code=$1', [code2])).rows[0].uses === 2);
+ok('invited_by recorded', (await su('select invited_by from profiles where id=$1', [C])).rows[0].invited_by === A);
 ok('second user not admin', (await su('select is_admin from profiles where id=$1', [B])).rows[0].is_admin === false);
+const stranger = await signIn('stranger@gmail.test');
+ok('signed in without invite: sees no messages', (await as(stranger, 'select * from messages')).rows.length === 0);
+ok('signed in without invite: sees no rooms', (await as(stranger, 'select * from rooms')).rows.length === 0);
+await expectErr('signed in without invite: cannot post', stranger, 'select public.send_message($1,$2)', [(await su(`select id from rooms where kind='global'`)).rows[0].id, 'hi'], 'NOT_A_MEMBER');
+await expectErr('signed in without invite: cannot make invites', stranger, 'select public.create_invite()', [], 'NOT_A_MEMBER');
+const oldCode = await invite(B);
+await su(`update invites set expires_at = now() - interval '1 minute' where code=$1`, [oldCode]);
+ok('check_signup: expired link', (await as(null, 'select public.check_signup($1) r', [oldCode])).rows[0].r === 'INVITE_EXPIRED');
+await expectErr('expired link rejected', stranger, 'select public.join_with_invite($1,$2)', [oldCode, 'late_larry'], 'INVITE_EXPIRED');
+const revCode = await invite(B);
+await expectErr('others cannot revoke your link', C, 'select public.revoke_invite($1)', [revCode], 'INVITE_INVALID');
+await as(B, 'select public.revoke_invite($1)', [revCode]);
+await expectErr('revoked link rejected', stranger, 'select public.join_with_invite($1,$2)', [revCode, 'late_larry'], 'INVITE_INVALID');
+const adminRev = await invite(C);
+await as(A, 'select public.revoke_invite($1)', [adminRev]);
+ok('admin can revoke anyone\'s link', (await as(null, 'select public.check_signup($1) r', [adminRev])).rows[0].r === 'INVITE_INVALID');
+for (let i = 0; i < 5; i++) await invite(C);
+await expectErr('max 5 live links each', C, 'select public.create_invite()', [], 'TOO_MANY_INVITES');
+await su(`update invites set revoked_at = now() where created_by = $1`, [C]);
 await expectErr('anon cannot create invite', null, 'select public.create_invite()', [], 'permission denied');
 ok('anon sees no messages', (await as(null, 'select * from messages')).rows.length === 0);
 ok('anon sees no profiles', (await as(null, 'select * from profiles')).rows.length === 0);
@@ -183,8 +207,8 @@ await expectErr('admin cannot demote founder', B, 'select public.set_admin($1, f
 await expectErr('admin cannot ban founder', B, 'select public.ban_user($1, true)', [A], 'CANNOT_CHANGE_OWNER');
 await expectErr('founder cannot ban self', A, 'select public.ban_user($1, true)', [A], 'NOT_YOURSELF');
 await expectErr('admin must be demoted before ban', A, 'select public.ban_user($1, true)', [B], 'DEMOTE_FIRST');
-const cInvite = (await as(C, 'select public.create_invite() c')).rows[0].c;
-const D = await signup('laser_liz', (await as(A, 'select public.create_invite() c')).rows[0].c);
+const cInvite = await invite(C);
+const D = await signup('laser_liz', await invite(A));
 await as(D, 'select public.send_friend_request($1)', [C]);
 await as(B, 'select public.ban_user($1, true)', [C]);
 ok('admin B bans C', (await su('select banned_at is not null b from profiles where id=$1', [C])).rows[0].b === true);
@@ -197,7 +221,7 @@ await expectErr('banned cannot invite', C, 'select public.create_invite()', [], 
 await expectErr('banned cannot upload', C, `insert into storage.objects (bucket_id, name) values ('chat-images', $1)`, [C + '/x.png']);
 await as(C, `update profiles set status_text = 'unban me' where id = auth.uid()`);
 ok('banned cannot edit profile', (await su('select status_text from profiles where id=$1', [C])).rows[0].status_text !== 'unban me');
-ok('banned user\'s unused invites deleted', (await su('select count(*)::int n from invites where code=$1', [cInvite])).rows[0].n === 0);
+ok('banned user\'s invite links stop working', (await as(null, 'select public.check_signup($1) r', [cInvite])).rows[0].r === 'INVITE_INVALID');
 ok('pending requests with banned user deleted', (await su(`select count(*)::int n from friend_requests where status='pending' and (from_user=$1 or to_user=$1)`, [C])).rows[0].n === 0);
 await expectErr('cannot friend a banned user', D, 'select public.send_friend_request($1)', [C], 'USER_BANNED');
 await expectErr('cannot promote a banned user', A, 'select public.set_admin($1, true)', [C], 'USER_BANNED');
@@ -210,6 +234,48 @@ ok('unban announced in Global', (await su(`select count(*)::int n from messages 
 await as(A, 'select public.set_admin($1, true)', [D]);
 await as(D, 'select public.set_admin($1, false)', [D]);
 ok('admin can step down', (await su('select is_admin from profiles where id=$1', [D])).rows[0].is_admin === false);
+
+console.log('# locked groups');
+const E = await signup('net_angel', await invite(A));
+await expectErr('regulars cannot create locked groups', B, `select public.create_group('secret_club', '#', true)`, [], 'NOT_ADMIN');
+const L = (await as(A, `select public.create_group('secret_club', '#', true) g`)).rows[0].g;
+ok('admin creates locked group', (await su('select locked from rooms where id=$1', [L])).rows[0].locked === true);
+ok('everyone can see it exists', (await as(E, 'select * from rooms where id=$1', [L])).rows.length === 1);
+await expectErr('cannot just join a locked group', E, 'select public.join_room($1)', [L], 'GROUP_LOCKED');
+ok('ask to join', (await as(E, 'select public.request_to_join($1) r', [L])).rows[0].r === 'REQUESTED');
+ok('asking twice is fine', (await as(E, 'select public.request_to_join($1) r', [L])).rows[0].r === 'ALREADY_REQUESTED');
+ok('admins see the request', (await as(A, 'select * from room_requests where room_id=$1', [L])).rows.length === 1);
+ok('other members do not', (await as(B, 'select * from room_requests where room_id=$1', [L])).rows.length === 0);
+await expectErr('regulars cannot approve', B, 'select public.answer_join_request($1,$2,true)', [L, E], 'NOT_ADMIN');
+await as(A, 'select public.answer_join_request($1,$2,true)', [L, E]);
+ok('approved member can read', (await as(E, 'select * from messages where room_id=$1', [L])).rows.length >= 1);
+ok('request cleared after approval', (await su('select count(*)::int n from room_requests where room_id=$1', [L])).rows[0].n === 0);
+await expectErr('regulars cannot invite into locked group', E, 'select public.invite_to_group($1,$2)', [L, B], 'NOT_ADMIN');
+ok('admin invites B', (await as(A, 'select public.invite_to_group($1,$2) r', [L, B])).rows[0].r === 'INVITED');
+ok('B sees own invitation', (await as(B, 'select kind from room_requests where room_id=$1', [L])).rows[0].kind === 'invite');
+await as(B, 'select public.join_room($1)', [L]);
+ok('invited member joins', (await su('select count(*)::int n from room_members where room_id=$1 and user_id=$2', [L, B])).rows[0].n === 1);
+await as(A, 'select public.invite_to_group($1,$2)', [L, D]);
+await as(D, 'select public.dismiss_room_request($1)', [L]);
+await expectErr('declined invitation no longer works', D, 'select public.join_room($1)', [L], 'GROUP_LOCKED');
+ok('request + admin invite = straight in', (await as(D, 'select public.request_to_join($1) r', [L])).rows[0].r === 'REQUESTED'
+  && (await as(A, 'select public.invite_to_group($1,$2) r', [L, D])).rows[0].r === 'ADDED');
+await as(C, 'select public.request_to_join($1)', [L]);
+await as(A, 'select public.answer_join_request($1,$2,false)', [L, C]);
+ok('turned-down request removed', (await su('select count(*)::int n from room_requests where room_id=$1 and user_id=$2', [L, C])).rows[0].n === 0);
+await expectErr('outsiders still cannot read', C, 'select public.send_message($1,$2)', [L, 'let me in'], 'NOT_IN_ROOM');
+await as(C, 'select public.request_to_join($1)', [L]);
+await as(A, 'select public.set_group_locked($1,false)', [L]);
+ok('unlocking clears requests', (await su('select count(*)::int n from room_requests where room_id=$1', [L])).rows[0].n === 0);
+await as(C, 'select public.join_room($1)', [L]);
+ok('anyone can join once unlocked', (await su('select count(*)::int n from room_members where room_id=$1 and user_id=$2', [L, C])).rows[0].n === 1);
+await expectErr('no requests on open groups', stranger, 'select public.request_to_join($1)', [L], 'NOT_A_MEMBER');
+await expectErr('regulars cannot lock groups', C, 'select public.set_group_locked($1,true)', [L], 'NOT_ADMIN');
+const L2 = (await as(E, `select public.create_group('open_mic') g`)).rows[0].g;
+await as(A, 'select public.set_group_locked($1,true)', [L2]);
+await as(A, 'select public.join_room($1)', [L2]);
+ok('admins can walk into locked groups', (await su('select count(*)::int n from room_members where room_id=$1 and user_id=$2', [L2, A])).rows[0].n === 1);
+await expectErr('helper functions are private', B, 'select public.add_to_room($1,$2)', [L, B], 'permission denied');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

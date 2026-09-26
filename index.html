@@ -41,32 +41,104 @@
     <div class="conn" id="conn"><span class="dot"></span><span id="conn-text">CONNECTING…</span></div>
   </div>
 
-  <!-- Sign on screen -->
+  <!-- Sign on screen: one window, several panels -->
   <main class="signon" id="signon" hidden>
     <div class="window">
-      <div class="window-title">Sign on to Pazhampori chat</div>
+      <div class="window-title" id="auth-title">Sign on to Pazhampori chat</div>
       <div class="window-body">
-        <div class="tabs" role="tablist">
-          <button class="tab is-active" id="tab-signin" type="button" role="tab" aria-selected="true">Sign in</button>
-          <button class="tab" id="tab-signup" type="button" role="tab" aria-selected="false">I have an invite</button>
-        </div>
-        <form id="form-auth" autocomplete="on" novalidate>
-          <label class="field only-signup" hidden>Invite code
-            <input id="auth-code" name="code" autocomplete="off" spellcheck="false" placeholder="e.g. 8B83285DF9">
+
+        <!-- Members signing in -->
+        <section class="auth-panel" id="panel-signin">
+          <button class="btn btn-big btn-google" id="btn-google-signin" type="button">Continue with Google</button>
+          <div class="or"><span>or sign in with email</span></div>
+          <form class="auth-form" id="form-signin" novalidate>
+            <label class="field">Email
+              <input id="signin-email" type="email" autocomplete="email">
+            </label>
+            <label class="field">Password
+              <input id="signin-password" type="password" autocomplete="current-password">
+            </label>
+            <button class="btn btn-big" id="signin-submit" type="submit">Sign on</button>
+          </form>
+          <div class="auth-links">
+            <button class="link-btn" id="link-forgot" type="button">Forgot password?</button>
+            <button class="link-btn" id="link-have-invite" type="button">I have an invite</button>
+          </div>
+        </section>
+
+        <!-- Invite page: opened from an invite link -->
+        <section class="auth-panel" id="panel-invite" hidden>
+          <p class="invite-hello" id="invite-hello">You're invited to Pazhampori chat.</p>
+          <label class="field">Invite code
+            <input id="invite-code-input" autocomplete="off" spellcheck="false" maxlength="20">
           </label>
-          <label class="field only-signup" hidden>Screen name
-            <input id="auth-username" name="username" autocomplete="nickname" spellcheck="false" placeholder="star_gazer" maxlength="20">
-            <small>3 to 20 letters, numbers or _</small>
+          <label class="field">Pick a screen name
+            <input id="invite-username" maxlength="20" spellcheck="false" autocomplete="nickname" placeholder="star_gazer">
+            <small>3 to 20 letters, numbers or _. This is the name everyone sees.</small>
           </label>
-          <label class="field">Email
-            <input id="auth-email" name="email" type="email" autocomplete="email" required>
-          </label>
-          <label class="field">Password
-            <input id="auth-password" name="password" type="password" autocomplete="current-password" minlength="6" required>
-          </label>
-          <p class="form-error" id="auth-error" role="alert" hidden></p>
-          <button class="btn btn-big" id="auth-submit" type="submit">Sign on</button>
-        </form>
+          <button class="btn btn-big btn-google" id="btn-google-join" type="button">Join with Google</button>
+          <div class="or"><span>or create an account with email</span></div>
+          <form class="auth-form" id="form-join-email" novalidate>
+            <label class="field">Email
+              <input id="join-email" type="email" autocomplete="email">
+            </label>
+            <label class="field">Password
+              <input id="join-password" type="password" autocomplete="new-password">
+              <small>At least 6 characters.</small>
+            </label>
+            <button class="btn btn-big" id="join-submit" type="submit">Create account</button>
+          </form>
+          <p class="fine-print">Your email is only used to sign you in. Other members never see it.</p>
+          <div class="auth-links">
+            <button class="link-btn" id="link-back-signin" type="button">Already a member? Sign in</button>
+          </div>
+        </section>
+
+        <!-- Signed in but not a member yet (e.g. just back from Google) -->
+        <section class="auth-panel" id="panel-finish" hidden>
+          <p id="finish-text">Almost in. Pick your screen name.</p>
+          <form class="auth-form" id="form-finish" novalidate>
+            <label class="field">Invite code
+              <input id="finish-code" autocomplete="off" spellcheck="false" maxlength="20">
+            </label>
+            <label class="field">Screen name
+              <input id="finish-username" maxlength="20" spellcheck="false" autocomplete="nickname">
+              <small>3 to 20 letters, numbers or _.</small>
+            </label>
+            <button class="btn btn-big" id="finish-submit" type="submit">Enter the chat</button>
+          </form>
+          <div class="auth-links">
+            <button class="link-btn" id="link-finish-signout" type="button">Sign out</button>
+          </div>
+        </section>
+
+        <!-- Forgot password -->
+        <section class="auth-panel" id="panel-forgot" hidden>
+          <p>Enter your email and we'll send a link to choose a new password.</p>
+          <form class="auth-form" id="form-forgot" novalidate>
+            <label class="field">Email
+              <input id="forgot-email" type="email" autocomplete="email">
+            </label>
+            <button class="btn btn-big" id="forgot-submit" type="submit">Send reset link</button>
+          </form>
+          <div class="auth-links">
+            <button class="link-btn" id="link-forgot-back" type="button">Back to sign in</button>
+          </div>
+        </section>
+
+        <!-- Back from a reset email -->
+        <section class="auth-panel" id="panel-newpass" hidden>
+          <form class="auth-form" id="form-newpass" novalidate>
+            <label class="field">New password
+              <input id="newpass" type="password" autocomplete="new-password">
+              <small>At least 6 characters.</small>
+            </label>
+            <button class="btn btn-big" id="newpass-submit" type="submit">Save password</button>
+          </form>
+        </section>
+
+        <p class="form-error" id="auth-error" role="alert" hidden></p>
+        <p class="auth-ok" id="auth-ok" role="status" hidden></p>
         <p class="modem-line" id="modem-line">ATDT 555-0199 … CONNECT 56000</p>
       </div>
     </div>
@@ -106,6 +178,7 @@
       <div class="chat-head">
         <h2 id="room-title">Global Chat</h2>
         <span class="live"><span class="live-dot"></span>LIVE</span>
+        <button class="btn btn-sm btn-dark" id="btn-lock-toggle" type="button" hidden>Lock group</button>
         <div class="online-summary">
           <div class="avatar-stack" id="avatar-stack"></div>
           <span id="online-count">1 person is online</span>
@@ -115,10 +188,14 @@
         <span id="conv-label">Live conversation</span>
         <span class="conv-meta" id="conv-meta"></span>
       </div>
+      <div class="requests-bar" id="requests-bar" hidden></div>
       <div class="messages" id="messages" aria-live="polite"></div>
       <div class="join-prompt" id="join-prompt" hidden>
         <p id="join-prompt-text">You're not in this room yet.</p>
-        <button class="btn" id="btn-join-here" type="button">Join room</button>
+        <span class="join-prompt-actions">
+          <button class="btn btn-dark" id="btn-join-alt" type="button" hidden>Decline</button>
+          <button class="btn" id="btn-join-here" type="button">Join room</button>
+        </span>
       </div>
       <div class="typing-bar" id="typing-bar"><span class="dots"><i></i><i></i><i></i></span><span id="typing-text"></span></div>
       <form class="composer" id="composer" autocomplete="off">
@@ -169,6 +246,10 @@
         <small>2 to 24 lowercase letters, numbers or _</small>
       </label>
       <fieldset class="icon-pick" id="create-icons"><legend>Icon</legend></fieldset>
+      <label class="check-row" id="create-locked-row" hidden>
+        <input type="checkbox" id="create-locked">
+        <span><b>Locked group.</b> People can only get in when an admin invites them or says yes to their request.</span>
+      </label>
       <p class="form-error" id="create-error" role="alert" hidden></p>
       <div class="dlg-actions">
         <button class="btn btn-dark" value="cancel" type="submit" formnovalidate>Cancel</button>
@@ -190,14 +271,20 @@
 
 <dialog class="dlg" id="dlg-invite">
   <form method="dialog">
-    <div class="window-title">Invite a friend</div>
+    <div class="window-title">Invite friends</div>
     <div class="window-body">
-      <p>Send them this code and the link to this page. Each code works once.</p>
-      <div class="invite-code" id="invite-code">…</div>
+      <p id="invite-explain">Anyone with this link can join until it expires. Send it anywhere: WhatsApp, email, a DM.</p>
+      <div class="invite-link" id="invite-link">…</div>
+      <p class="invite-meta" id="invite-meta"></p>
       <p class="form-error" id="invite-error" role="alert" hidden></p>
       <div class="dlg-actions">
         <button class="btn btn-dark" value="cancel">Close</button>
-        <button class="btn" id="invite-copy" type="button">Copy code</button>
+        <button class="btn btn-dark" id="invite-new" type="button">New link</button>
+        <button class="btn" id="invite-copy" type="button">Copy link</button>
+      </div>
+      <div class="invite-list-wrap" id="invite-list-wrap" hidden>
+        <div class="pc-admin-label">YOUR LIVE LINKS</div>
+        <div class="invite-list" id="invite-list"></div>
       </div>
     </div>
   </form>
@@ -238,6 +325,11 @@
         <div class="pc-admin-label">ADMIN TOOLS</div>
         <div class="pc-actions" id="pc-admin-actions"></div>
         <p class="pc-hint" id="pc-admin-hint"></p>
+        <div class="pc-lock-invite" id="pc-lock-invite" hidden>
+          <label class="sr-only" for="pc-lock-select">Locked group</label>
+          <select id="pc-lock-select"></select>
+          <button class="btn btn-sm" id="pc-lock-btn" type="button">Invite to group</button>
+        </div>
       </div>
       <p class="form-error" id="pc-error" role="alert" hidden></p>
     </div>

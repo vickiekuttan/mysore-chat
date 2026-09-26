@@ -11,6 +11,7 @@
     const S = Object.assign({}, window.PZ.DEFAULT_SETTINGS, { total_words: 412338 });
     const ME = 'me';
     let signedIn = false;
+    let hasProfile = true;   // false between signing up and picking a screen name
     let h = null;
     let nextMsgId = 500;
     const images = new Map();
@@ -42,6 +43,17 @@
     const everyone = profiles.map((p) => p.id);
     joined.forEach((r, i) => everyone.slice(0, 4 + i * 2).forEach((u) => memberships.push({ room_id: r, user_id: u })));
     explore.forEach(([r], i) => everyone.slice(1, 3 + i).forEach((u) => memberships.push({ room_id: r, user_id: u })));
+
+    // A locked group you're in (as an admin), with someone waiting to be let in,
+    // and one you're not in yet.
+    rooms.push({ id: 'vip_lounge', kind: 'group', name: 'vip_lounge', icon: '$', locked: true, created_by: 'jen' });
+    ['jen', ME, 'suze'].forEach((u) => memberships.push({ room_id: 'vip_lounge', user_id: u }));
+    rooms.push({ id: 'mods_only', kind: 'group', name: 'mods_only', icon: '!', locked: true, created_by: 'jen' });
+    memberships.push({ room_id: 'mods_only', user_id: 'jen' });
+    const roomRequests = [
+      { room_id: 'vip_lounge', user_id: 'angel', kind: 'request', by_user: 'angel', created_at: iso(now() - 600000) }
+    ];
+    const invites = [];
 
     const friendRequests = [];
     let reqId = 1;
@@ -118,6 +130,19 @@
     }
 
     function me() { return profiles.find((p) => p.id === ME); }
+    function dropRequest(roomId, userId) {
+      const i = roomRequests.findIndex((q) => q.room_id === roomId && q.user_id === userId);
+      if (i < 0) return;
+      const [row] = roomRequests.splice(i, 1);
+      emit('roomRequest', 'remove', { room_id: row.room_id, user_id: row.user_id });
+    }
+    function addToRoom(roomId, userId) {
+      dropRequest(roomId, userId);
+      if (memberships.some((m) => m.room_id === roomId && m.user_id === userId)) return;
+      memberships.push({ room_id: roomId, user_id: userId });
+      emit('membership', 'add', { room_id: roomId, user_id: userId });
+      emit('message', add(roomId, userId, 'JOINED', 'system'));
+    }
     function canRead(roomId) {
       const r = rooms.find((x) => x.id === roomId);
       return r && (r.kind === 'global' || memberships.some((m) => m.room_id === roomId && m.user_id === ME));
@@ -129,16 +154,33 @@
 
       async currentUserId() { return signedIn ? ME : null; },
       onAuthChange() {},
+      async signInWithGoogle() {
+        signedIn = true;
+        try { if (localStorage.getItem('pz_invite')) hasProfile = false; } catch (_) { /* ignore */ }
+      },
+      inRecovery: () => false,
       async signIn() { signedIn = true; return ME; },
-      async signUp({ username, code }) {
-        if (!/^[A-Za-z0-9_]{3,20}$/.test(username || '')) fail('USERNAME_INVALID');
-        if (!code) fail('INVITE_INVALID');
-        me().username = username; signedIn = true; return ME;
+      async signUpEmail() { signedIn = true; hasProfile = false; return ME; },
+      async sendPasswordReset() {},
+      async setNewPassword() {},
+      async checkInvite(code, username) {
+        if (!code) return 'INVITE_INVALID';
+        if (username !== undefined && username !== null) {
+          if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) return 'USERNAME_INVALID';
+          if (profiles.some((p) => p.id !== ME && p.username.toLowerCase() === username.toLowerCase())) return 'USERNAME_TAKEN';
+        }
+        return 'OK';
+      },
+      async joinWithInvite(code, username) {
+        const st = await this.checkInvite(code, username);
+        if (st !== 'OK') fail(st);
+        me().username = username;
+        hasProfile = true;
       },
       async signOut() { signedIn = false; },
 
       async loadAll() {
-        return JSON.parse(JSON.stringify({ profiles, rooms, memberships, friendRequests, settings: S }));
+        return JSON.parse(JSON.stringify({ profiles, rooms, memberships, friendRequests, settings: S, roomRequests }));
       },
       async loadMessages(roomId) {
         if (!canRead(roomId)) return [];
@@ -187,11 +229,12 @@
         return { id: m.id, wiped, path };
       },
 
-      async createGroup(name, icon) {
+      async createGroup(name, icon, locked) {
         const n = String(name || '').trim().toLowerCase();
+        if (locked && !me().is_admin) fail('NOT_ADMIN');
         if (!/^[a-z0-9_]{2,24}$/.test(n)) fail('GROUP_NAME_INVALID');
         if (rooms.some((r) => r.kind === 'group' && r.name === n)) fail('GROUP_NAME_TAKEN');
-        const room = { id: 'g-' + uid(), kind: 'group', name: n, icon: icon || '#', created_by: ME };
+        const room = { id: 'g-' + uid(), kind: 'group', name: n, icon: icon || '#', created_by: ME, locked: !!locked };
         rooms.push(room);
         memberships.push({ room_id: room.id, user_id: ME });
         emit('room', room);
@@ -201,16 +244,77 @@
       },
       async joinRoom(id) {
         if (memberships.some((m) => m.room_id === id && m.user_id === ME)) return;
-        memberships.push({ room_id: id, user_id: ME });
-        emit('membership', 'add', { room_id: id, user_id: ME });
-        emit('message', add(id, ME, 'JOINED', 'system'));
+        const r = rooms.find((x) => x.id === id);
+        if (r && r.locked && !me().is_admin) {
+          const inv = roomRequests.findIndex((q) => q.room_id === id && q.user_id === ME && q.kind === 'invite');
+          if (inv < 0) fail('GROUP_LOCKED');
+        }
+        addToRoom(id, ME);
+      },
+      async requestToJoin(id) {
+        const r = rooms.find((x) => x.id === id);
+        if (!r || !r.locked) fail('NOT_LOCKED');
+        if (memberships.some((m) => m.room_id === id && m.user_id === ME)) return 'ALREADY_IN';
+        if (me().is_admin) { addToRoom(id, ME); return 'JOINED'; }
+        const q = roomRequests.find((x) => x.room_id === id && x.user_id === ME);
+        if (q && q.kind === 'invite') { addToRoom(id, ME); return 'JOINED'; }
+        if (q) return 'ALREADY_REQUESTED';
+        const row = { room_id: id, user_id: ME, kind: 'request', by_user: ME, created_at: iso(now()) };
+        roomRequests.push(row);
+        emit('roomRequest', 'add', Object.assign({}, row));
+        return 'REQUESTED';
+      },
+      async dismissRoomRequest(id) { dropRequest(id, ME); },
+      async inviteToGroup(roomId, userId) {
+        const r = rooms.find((x) => x.id === roomId);
+        if (!r || !r.locked) fail('NOT_LOCKED');
+        const t = profiles.find((p) => p.id === userId);
+        if (!t) fail('USER_NOT_FOUND');
+        if (t.banned_at) fail('USER_BANNED');
+        if (memberships.some((m) => m.room_id === roomId && m.user_id === userId)) return 'ALREADY_IN';
+        const q = roomRequests.find((x) => x.room_id === roomId && x.user_id === userId);
+        if (q && q.kind === 'request') { addToRoom(roomId, userId); return 'ADDED'; }
+        dropRequest(roomId, userId);
+        const row = { room_id: roomId, user_id: userId, kind: 'invite', by_user: ME, created_at: iso(now()) };
+        roomRequests.push(row);
+        emit('roomRequest', 'add', Object.assign({}, row));
+        // Pretend they accept after a moment.
+        setTimeout(() => { if (roomRequests.includes(row)) addToRoom(roomId, userId); }, 5000);
+        return 'INVITED';
+      },
+      async answerJoinRequest(roomId, userId, accept) {
+        const q = roomRequests.find((x) => x.room_id === roomId && x.user_id === userId && x.kind === 'request');
+        if (!q) fail('REQUEST_NOT_FOUND');
+        if (accept) addToRoom(roomId, userId); else dropRequest(roomId, userId);
+      },
+      async setGroupLocked(roomId, locked) {
+        const r = rooms.find((x) => x.id === roomId);
+        if (!r || r.kind !== 'group' || !!r.locked === locked) return;
+        r.locked = locked;
+        emit('room', Object.assign({}, r));
+        emit('message', add(roomId, ME, locked ? 'LOCKED' : 'UNLOCKED', 'system'));
+        if (!locked) roomRequests.filter((q) => q.room_id === roomId).forEach((q) => dropRequest(roomId, q.user_id));
       },
       async leaveRoom(id) {
         const i = memberships.findIndex((m) => m.room_id === id && m.user_id === ME);
         if (i >= 0) memberships.splice(i, 1);
         emit('membership', 'remove', { room_id: id, user_id: ME });
       },
-      async createInvite() { return uid().toUpperCase().slice(0, 10).padEnd(10, 'X'); },
+      async createInvite() {
+        const live = invites.filter((i) => !i.revoked && Date.parse(i.expires_at) > now());
+        if (live.length >= S.max_active_invites) fail('TOO_MANY_INVITES');
+        const inv = { code: (uid() + uid()).toUpperCase().slice(0, 10), expires_at: iso(now() + S.invite_days * 86400000), uses: 0, created_at: iso(now()) };
+        invites.unshift(inv);
+        return { code: inv.code, expires_at: inv.expires_at };
+      },
+      async listInvites() {
+        return invites.filter((i) => !i.revoked && Date.parse(i.expires_at) > now()).map((i) => Object.assign({}, i));
+      },
+      async revokeInvite(code) {
+        const i = invites.find((x) => x.code === code);
+        if (!i) fail('INVITE_INVALID');
+        i.revoked = true;
+      },
 
       async sendFriendRequest(to) {
         const tp = profiles.find((p) => p.id === to);
@@ -292,7 +396,7 @@
         emit('profile', Object.assign({}, t));
         emit('message', Object.assign(add('global', ME, ban ? 'BANNED' : 'UNBANNED', 'system'), { target_id: id }));
       },
-      async loadSelf() { return Object.assign({}, me()); },
+      async loadSelf() { return hasProfile ? Object.assign({}, me()) : null; },
 
       async imageUrl(path) { return images.get(path) || ''; },
       async ping() { return { ms: 900 + Math.random() * 900, totalWords: S.total_words }; },
