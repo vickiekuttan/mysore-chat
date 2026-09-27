@@ -564,7 +564,8 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
   .toolbar .btn svg { width: 13px; height: 13px; }
   .conn { font-size: 10px; gap: 5px; }
   .conn .dot { width: 7px; height: 7px; }
-  .live { display: none; }
+  .live { flex: none; padding: 2px 5px; font-size: 10px; gap: 4px; border-width: 1px; }
+  .live-dot { width: 6px; height: 6px; }
   .chat-head { padding: 12px; gap: 10px; flex-wrap: nowrap; }
   .title-btn { flex: 1 1 auto; }
   .chat-head h2 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

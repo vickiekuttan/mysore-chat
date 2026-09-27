@@ -229,7 +229,9 @@
     const stack = $('avatar-stack');
     stack.textContent = '';
     online.slice(0, 3).forEach((id) => stack.append(avatar(id, 'avatar-sm')));
-    $('online-count').textContent = `${online.length} ${online.length === 1 ? 'person is' : 'people are'} online`;
+    $('online-count').textContent = window.matchMedia('(max-width: 560px)').matches
+      ? `${online.length} online`
+      : `${online.length} ${online.length === 1 ? 'person is' : 'people are'} online`;
     const msgs = st.msgs.get(r.id) || [];
     const d = new Date();
     const date = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${String(d.getFullYear()).slice(2)}`;
