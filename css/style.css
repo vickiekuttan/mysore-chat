@@ -62,7 +62,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 /* The logo is the designer's own artwork (fritter + "Pazhampori chat" lettering) */
 .logo { margin: 0; line-height: 0; }
-.logo img { display: block; height: 30px; width: auto; max-width: 100%; }
+.logo img { display: block; height: 22px; width: auto; max-width: 100%; }  /* same height as the old logo */
 
 .toolbar {
   display: flex;
@@ -545,7 +545,7 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
   .body { font-size: 15px; padding-top: 4px; }
 }
 @media (max-width: 560px) {
-  .logo img { height: 24px; }
+  .logo img { height: 20px; }
   .toolbar { padding: 8px; gap: 6px; }
   .toolbar .btn { font-size: 13px; padding: 5px 7px; gap: 5px; }
   .toolbar .btn svg { width: 13px; height: 13px; }
