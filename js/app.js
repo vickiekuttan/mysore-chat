@@ -213,7 +213,8 @@
         return;
       }
     }
-    if (st.current === roomId) { renderMessages(); $('msg-input').focus({ preventScroll: true }); }
+    // Don't pop the phone keyboard just because a room opened.
+    if (st.current === roomId) { renderMessages(); if (!isPhone()) $('msg-input').focus({ preventScroll: true }); }
     pushPresence();
   }
 
@@ -223,16 +224,18 @@
     $('room-title').textContent = r.kind === 'global' ? 'Global Chat' : r.kind === 'dm' ? '@' + nameOf(dmPartner(r)) : '#' + r.name;
     const lockBtn = $('btn-lock-toggle');
     lockBtn.hidden = !(r.kind === 'group' && amAdmin());
-    lockBtn.textContent = r.locked ? 'Unlock group' : 'Lock group';
-    lockBtn.title = r.locked ? 'Let anyone join this group' : 'Only people an admin lets in can join';
+    lockBtn.querySelector('.lock-label').textContent = r.locked ? 'Unlock group' : 'Lock group';
+    lockBtn.setAttribute('aria-label', r.locked ? 'Unlock group' : 'Lock group');
+    lockBtn.title = r.locked ? 'Unlock: let anyone join this group' : 'Lock: only people an admin lets in can join';
     const online = onlineIds();
     const stack = $('avatar-stack');
     stack.textContent = '';
     online.slice(0, 3).forEach((id) => stack.append(avatar(id, 'avatar-sm')));
-    // Full wording like the design; only the smallest phones get the short form.
-    $('online-count').textContent = window.matchMedia('(max-width: 400px)').matches
-      ? `${online.length} online`
-      : `${online.length} ${online.length === 1 ? 'person is' : 'people are'} online`;
+    // Full wording like the design; shortened only if it would squeeze the room name.
+    const oc = $('online-count');
+    oc.textContent = `${online.length} ${online.length === 1 ? 'person is' : 'people are'} online`;
+    const h2 = $('room-title');
+    if (window.matchMedia('(max-width: 560px)').matches && h2.scrollWidth > h2.clientWidth) oc.textContent = `${online.length} online`;
     const msgs = st.msgs.get(r.id) || [];
     const d = new Date();
     const date = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${String(d.getFullYear()).slice(2)}`;
@@ -1442,6 +1445,27 @@
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
     });
     $('composer').addEventListener('submit', (e) => { e.preventDefault(); send(); });
+    // Tapping SEND shouldn't take focus from the message box (keeps the keyboard up).
+    $('btn-send').addEventListener('mousedown', (e) => { if (document.activeElement === input) e.preventDefault(); });
+
+    // Keep the whole app inside the visible area. On phones the keyboard
+    // shrinks that area, and the message box must stay above it.
+    const vv = window.visualViewport;
+    const fit = () => {
+      const h = vv ? vv.height * (vv.scale || 1) : window.innerHeight;
+      document.documentElement.style.setProperty('--app-h', Math.round(h) + 'px');
+      if (vv && vv.offsetTop > 0 && vv.scale <= 1.01) window.scrollTo(0, 0);
+    };
+    if (vv) { vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); }
+    window.addEventListener('resize', fit);
+    fit();
+    // Phones: while typing, hide the extra bars so the conversation has room.
+    input.addEventListener('focus', () => {
+      if (!isPhone()) return;
+      document.body.classList.add('kb-open');
+      setTimeout(() => { const box = $('messages'); box.scrollTop = box.scrollHeight; }, 300);
+    });
+    input.addEventListener('blur', () => document.body.classList.remove('kb-open'));
 
     $('img-input').addEventListener('change', (e) => {
       const f = e.target.files && e.target.files[0];

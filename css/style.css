@@ -44,6 +44,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* ------------------------------------------------------------- frame */
 .frame {
   height: 100%;
+  /* Follows the visible area, so the keyboard never covers the message box */
+  height: var(--app-h, 100dvh);
   display: flex;
   flex-direction: column;
   background: var(--bg);
@@ -545,6 +547,13 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
   .body { font-size: 15px; padding-top: 4px; }
 }
 @media (max-width: 560px) {
+  /* While typing on a phone, give the conversation the room the keyboard took */
+  body.kb-open .toolbar, body.kb-open .conv-bar, body.kb-open .composer-note,
+  body.kb-open .statusbar, body.kb-open .requests-bar { display: none; }
+  body.kb-open .titlebar { padding-block: 5px; }
+  body.kb-open .chat-head { padding-block: 8px; }
+  #btn-lock-toggle { padding: 5px 7px; }
+  #btn-lock-toggle .lock-label { display: none; }
   .toolbar { padding: 8px; gap: 6px; }
   .toolbar .btn { font-size: 13px; padding: 5px 7px; gap: 5px; }
   .toolbar .btn svg { width: 13px; height: 13px; }
@@ -567,6 +576,7 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
 }
 @media (max-width: 380px) {
   .conn { width: 100%; margin-left: 0; }
+  .avatar-stack { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -650,3 +660,5 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
 .invite-row-meta { font-size: 12px; color: var(--text-dim); }
 .invite-code-line { margin: 0; font-size: 13px; color: var(--text-dim); }
 .invite-code-line span { color: var(--green-text); font-weight: 600; letter-spacing: 0.08em; }
+#btn-lock-toggle { gap: 6px; }
+#btn-lock-toggle .lock-ico { width: 11px; height: 13px; }
