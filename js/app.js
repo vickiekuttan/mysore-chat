@@ -859,7 +859,10 @@
     $('conn-text').textContent = up ? `CONNECTED • ${p ? p.modem : '56k'}` : st.conn === 'down' ? 'NO CARRIER' : 'CONNECTING…';
     $('sb-conn').textContent = `${backend.mode === 'demo' ? 'DEMO MODE • ' : 'Secure-ish connection to '}${backend.host}` +
       (st.lag !== null ? ` • Lag ${(st.lag / 1000).toFixed(1)} sec` : '');
-    $('sb-words').textContent = `${fmtNum(st.settings.total_words)} / ${fmtNum(st.settings.wipe_at_words)} words`;
+    const compact = (n) => n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.floor(n / 1e3)}k` : String(n);
+    $('sb-words').textContent = window.matchMedia('(max-width: 560px)').matches
+      ? `${compact(Number(st.settings.total_words))}/${compact(Number(st.settings.wipe_at_words))} words`
+      : `${fmtNum(st.settings.total_words)} / ${fmtNum(st.settings.wipe_at_words)} words`;
     const you = $('sb-you');
     you.hidden = !p;
     if (p) you.textContent = `you: ${p.username}`;
@@ -986,8 +989,69 @@
     renderHead(); renderRooms(); renderRequestsBar(); renderJoinPrompt();
   }
 
+  // ---------------------------------------------------------------- side panels
+  const PHONE = window.matchMedia('(max-width: 960px)');
+  const isPhone = () => PHONE.matches;
+  const sheetOpen = () => document.body.classList.contains('show-rooms') || document.body.classList.contains('show-people');
+  let sheetOpener = null;
+
+  // which: 'rooms' | 'people'. On phones this opens/closes a bottom sheet;
+  // on bigger screens it expands/collapses the panel (remembered per browser).
+  function setPanel(which, open) {
+    const body = document.body;
+    if (isPhone()) {
+      if (!open) return closeOverlays();
+      sheetOpener = document.activeElement;
+      body.classList.remove('show-rooms', 'show-people');
+      body.classList.add('show-' + which);
+      const focusTarget = which === 'rooms' ? $('btn-collapse-rooms') : $('btn-collapse-people');
+      setTimeout(() => focusTarget.focus({ preventScroll: true }), 50);
+      return;
+    }
+    body.classList.toggle(which + '-collapsed', !open);
+    store.set('pz_' + which + '_collapsed', open ? '0' : '1');
+    const next = open ? (which === 'rooms' ? $('btn-collapse-rooms') : $('btn-collapse-people'))
+      : (which === 'rooms' ? $('btn-expand-rooms') : $('btn-expand-people'));
+    next.focus({ preventScroll: true });
+  }
+
+  function restorePanels() {
+    document.body.classList.toggle('rooms-collapsed', store.get('pz_rooms_collapsed') === '1');
+    document.body.classList.toggle('people-collapsed', store.get('pz_people_collapsed') === '1');
+  }
+
+  // Drag a sheet's header downwards to close it.
+  function swipeToClose(handle) {
+    let startY = null;
+    let sheet = null;
+    handle.addEventListener('pointerdown', (e) => {
+      if (!isPhone() || e.target.closest('button, input')) return;
+      startY = e.clientY;
+      sheet = handle.closest('.panel');
+      sheet.style.transition = 'none';
+      handle.setPointerCapture(e.pointerId);
+    });
+    handle.addEventListener('pointermove', (e) => {
+      if (startY === null) return;
+      sheet.style.transform = `translateY(${Math.max(0, e.clientY - startY)}px)`;
+    });
+    const end = (e) => {
+      if (startY === null) return;
+      const dy = e.clientY - startY;
+      startY = null;
+      sheet.style.transition = '';
+      sheet.style.transform = '';
+      if (dy > 80) closeOverlays();
+    };
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  }
+
   function closeOverlays() {
+    const wasOpen = sheetOpen();
     document.body.classList.remove('show-rooms', 'show-people');
+    if (wasOpen && sheetOpener && document.contains(sheetOpener)) sheetOpener.focus({ preventScroll: true });
+    sheetOpener = null;
   }
 
   function openJoinDialog() {
@@ -1400,13 +1464,18 @@
     $('btn-join-alt').addEventListener('click', (e) => joinPromptAction(e.currentTarget.dataset.action));
     $('btn-lock-toggle').addEventListener('click', toggleLock);
     $('pc-lock-btn').addEventListener('click', inviteToLockedGroup);
-    $('btn-show-rooms').addEventListener('click', () => { document.body.classList.remove('show-people'); document.body.classList.toggle('show-rooms'); });
-    $('btn-show-people').addEventListener('click', () => { document.body.classList.remove('show-rooms'); document.body.classList.toggle('show-people'); });
-    $('btn-close-people').addEventListener('click', closeOverlays);
-    $('btn-collapse-rooms').addEventListener('click', () => {
-      if (window.matchMedia('(max-width: 960px)').matches) return closeOverlays();
-      document.body.classList.toggle('rooms-collapsed');
-    });
+    // Side panels: collapse to rails on desktop, bottom sheets on phones.
+    $('btn-collapse-rooms').addEventListener('click', () => setPanel('rooms', false));
+    $('btn-expand-rooms').addEventListener('click', () => setPanel('rooms', true));
+    $('btn-collapse-people').addEventListener('click', () => setPanel('people', false));
+    $('btn-expand-people').addEventListener('click', () => setPanel('people', true));
+    $('btn-title-rooms').addEventListener('click', () => { if (isPhone() || document.body.classList.contains('rooms-collapsed')) setPanel('rooms', true); });
+    $('btn-online-people').addEventListener('click', () => { if (isPhone() || document.body.classList.contains('people-collapsed')) setPanel('people', true); });
+    $('sheet-backdrop').addEventListener('click', closeOverlays);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isPhone() && sheetOpen()) closeOverlays(); });
+    swipeToClose($('rooms-panel').querySelector('.panel-head'));
+    swipeToClose($('people-panel').querySelector('.people-tabs'));
+    restorePanels();
     $('room-search').addEventListener('input', (e) => { st.search = e.target.value; renderRooms(); });
 
     $('ptab-all').addEventListener('click', () => setPeopleTab('all'));

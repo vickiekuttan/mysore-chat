@@ -8,7 +8,7 @@
   <link rel="icon" href="assets/pazhampori.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=Pixelify+Sans:wght@500;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Coral+Pixels&family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=Pixelify+Sans:wght@500;700&display=swap">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -34,10 +34,6 @@
       <svg viewBox="0 0 18 16" aria-hidden="true"><circle cx="6" cy="5" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12.5" cy="5.5" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M1 15c.4-3.3 2.6-5 5-5s4.6 1.7 5 5M12 10c2.4 0 4.3 1.4 4.8 4.4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
       Create group
     </button>
-    <div class="toolbar-mobile">
-      <button class="btn btn-dark" id="btn-show-rooms" type="button">Rooms</button>
-      <button class="btn btn-dark" id="btn-show-people" type="button">People <span class="pill" id="people-badge" hidden></span></button>
-    </div>
     <div class="conn" id="conn"><span class="dot"></span><span id="conn-text">CONNECTING…</span></div>
   </div>
 
@@ -159,11 +155,20 @@
   <!-- Chat -->
   <main class="main" id="main" hidden>
 
+    <!-- Collapsed rooms panel (desktop) -->
+    <div class="rail rail-rooms" id="rail-rooms">
+      <div class="rail-cap">
+        <button class="icon-btn px-btn" id="btn-expand-rooms" type="button" aria-label="Show rooms" title="Show rooms">
+          <svg class="px-icon" viewBox="0 0 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true"><path d="M2 0h8v1H2zM2 11h8v1H2zM0 2h1v8H0zM11 2h1v8h-1zM1 1h1v1H1zM10 1h1v1h-1zM1 10h1v1H1zM10 10h1v1h-1z"/><path d="M7 3h1v1H7zM6 4h1v1H6zM5 5h1v2H5zM6 7h1v1H6zM7 8h1v1H7z"/></svg>
+        </button>
+      </div>
+    </div>
+
     <aside class="panel rooms" id="rooms-panel" aria-label="Rooms">
       <div class="panel-head">
         <span>ROOMS</span>
-        <button class="icon-btn" id="btn-collapse-rooms" type="button" aria-label="Hide rooms">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 5 6.5 8l3 3" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <button class="icon-btn px-btn" id="btn-collapse-rooms" type="button" aria-label="Hide rooms" title="Hide rooms">
+          <svg class="px-icon" viewBox="0 0 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true"><path d="M2 0h8v1H2zM2 11h8v1H2zM0 2h1v8H0zM11 2h1v8h-1zM1 1h1v1H1zM10 1h1v1h-1zM1 10h1v1H1zM10 10h1v1h-1z"/><path d="M7 3h1v1H7zM6 4h1v1H6zM5 5h1v2H5zM6 7h1v1H6zM7 8h1v1H7z"/></svg>
         </button>
       </div>
       <label class="search">
@@ -176,13 +181,17 @@
 
     <section class="chat" aria-label="Conversation">
       <div class="chat-head">
-        <h2 id="room-title">Global Chat</h2>
+        <button class="title-btn" id="btn-title-rooms" type="button" aria-label="Rooms: switch room">
+          <h2 id="room-title">Global Chat</h2>
+          <span class="title-caret" aria-hidden="true">▾</span>
+        </button>
         <span class="live"><span class="live-dot"></span>LIVE</span>
         <button class="btn btn-sm btn-dark" id="btn-lock-toggle" type="button" hidden>Lock group</button>
-        <div class="online-summary">
-          <div class="avatar-stack" id="avatar-stack"></div>
+        <button class="online-summary" id="btn-online-people" type="button" aria-label="People: see who is online">
+          <span class="avatar-stack" id="avatar-stack"></span>
           <span id="online-count">1 person is online</span>
-        </div>
+          <span class="pill" id="people-badge" hidden></span>
+        </button>
       </div>
       <div class="conv-bar">
         <span id="conv-label">Live conversation</span>
@@ -216,13 +225,29 @@
     </section>
 
     <aside class="panel people" id="people-panel" aria-label="People">
-      <div class="people-tabs" role="tablist">
-        <button class="ptab is-active" id="ptab-all" type="button" role="tab" aria-selected="true">ALL</button>
-        <button class="ptab" id="ptab-friends" type="button" role="tab" aria-selected="false">FRIENDS <span class="pill" id="friends-badge" hidden></span></button>
-        <button class="icon-btn people-close" id="btn-close-people" type="button" aria-label="Close people">✕</button>
+      <div class="people-tabs">
+        <button class="icon-btn px-btn" id="btn-collapse-people" type="button" aria-label="Hide people" title="Hide people">
+          <svg class="px-icon" viewBox="0 0 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true"><path d="M2 0h8v1H2zM2 11h8v1H2zM0 2h1v8H0zM11 2h1v8h-1zM1 1h1v1H1zM10 1h1v1h-1zM1 10h1v1H1zM10 10h1v1h-1z"/><path d="M4 3h1v1H4zM5 4h1v1H5zM6 5h1v2H6zM5 7h1v1H5zM4 8h1v1H4z"/></svg>
+        </button>
+        <div class="ptabs" role="tablist">
+          <button class="ptab is-active" id="ptab-all" type="button" role="tab" aria-selected="true">ALL</button>
+          <button class="ptab" id="ptab-friends" type="button" role="tab" aria-selected="false">FRIENDS <span class="pill" id="friends-badge" hidden></span></button>
+        </div>
       </div>
       <div class="people-list" id="people-list"></div>
     </aside>
+
+    <!-- Collapsed people panel (desktop) -->
+    <div class="rail rail-people" id="rail-people">
+      <div class="rail-cap">
+        <button class="icon-btn px-btn" id="btn-expand-people" type="button" aria-label="Show people" title="Show people">
+          <svg class="px-icon" viewBox="0 0 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true"><path d="M2 0h8v1H2zM2 11h8v1H2zM0 2h1v8H0zM11 2h1v8h-1zM1 1h1v1H1zM10 1h1v1h-1zM1 10h1v1H1zM10 10h1v1h-1z"/><path d="M4 3h1v1H4zM5 4h1v1H5zM6 5h1v2H6zM5 7h1v1H5zM4 8h1v1H4z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Dims and blurs the chat behind a bottom sheet (phones) -->
+    <div class="sheet-backdrop" id="sheet-backdrop"></div>
 
   </main>
 
