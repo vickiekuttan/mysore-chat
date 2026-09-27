@@ -62,7 +62,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 /* The logo is the designer's own artwork (fritter + "Pazhampori chat" lettering) */
 .logo { margin: 0; line-height: 0; }
-.logo img { display: block; width: 140px; height: auto; aspect-ratio: 427 / 61; flex: none; }  /* 140 x 20, natural proportions; pre-scaled files so the browser never squashes it */
+.logo img { display: block; width: 168px; height: auto; aspect-ratio: 427 / 61; flex: none; }  /* 168 x 24, natural proportions; pre-scaled files keep it sharp */
 
 .toolbar {
   display: flex;

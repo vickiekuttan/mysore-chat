@@ -136,7 +136,7 @@ js/backend-supabase.js     talks to Supabase
 js/backend-demo.js         the pretend server for demo mode
 supabase/schema.sql        tables, rules, permissions (run once in Supabase)
 supabase/tests/            automated checks for the rules
-assets/logo.png            the logo (fritter + lettering)
+assets/logo*.png           the logo (fritter + lettering) at 1x, 2x and full size
 assets/favicon.png         the browser-tab icon
 ```
 
