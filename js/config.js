@@ -9,6 +9,6 @@
 // sent anywhere. Handy for trying the look and the rules on your own.
 // ---------------------------------------------------------------------------
 window.PZ_CONFIG = {
-  SUPABASE_URL: '',
-  SUPABASE_ANON_KEY: ''
+  SUPABASE_URL: 'https://kocwviuyjbwdbacsyild.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_ilB76jFK-4GBQzzINnm7_A_r14Agr_p'
 };
