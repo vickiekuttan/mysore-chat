@@ -25,7 +25,6 @@
   --unread: #ff5a36;
   --mono: 'IBM Plex Mono', 'Courier New', Courier, monospace;
   --pixel: 'Pixelify Sans', 'Courier New', monospace;
-  --logo: 'Coral Pixels', 'Pixelify Sans', 'Courier New', monospace;
   --sans: Arial, Helvetica, sans-serif;
 }
 
@@ -61,12 +60,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
   background: var(--bg);
   border-bottom: 1px solid #000;
 }
-.titlebar h1 {
-  margin: 0;
-  font: 400 24px/1 var(--logo);
-  color: #fff;
-}
-.logo { display: block; }
+/* The logo is the designer's own artwork (fritter + "Pazhampori chat" lettering) */
+.logo { margin: 0; line-height: 0; }
+.logo img { display: block; height: 30px; width: auto; max-width: 100%; }
 
 .toolbar {
   display: flex;
@@ -250,15 +246,6 @@ body.rooms-collapsed .title-btn { cursor: pointer; }
   color: var(--green-text);
   overflow-wrap: anywhere;
 }
-.live {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 7px;
-  background: var(--red); color: #fff;
-  border: 2px solid #fff;
-  font: 600 12px/1 var(--mono); letter-spacing: 0.06em;
-}
-.live-dot { width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: blink 1.4s steps(2, start) infinite; }
-@keyframes blink { to { visibility: hidden; } }
 .online-summary {
   margin-left: auto; display: flex; align-items: center; gap: 12px;
   padding: 0; border: 0; background: none; font: 13px var(--mono); text-align: left; cursor: default;
@@ -558,14 +545,12 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
   .body { font-size: 15px; padding-top: 4px; }
 }
 @media (max-width: 560px) {
-  .titlebar h1 { font-size: 20px; }
+  .logo img { height: 24px; }
   .toolbar { padding: 8px; gap: 6px; }
   .toolbar .btn { font-size: 13px; padding: 5px 7px; gap: 5px; }
   .toolbar .btn svg { width: 13px; height: 13px; }
   .conn { font-size: 10px; gap: 5px; }
   .conn .dot { width: 7px; height: 7px; }
-  .live { flex: none; padding: 2px 5px; font-size: 10px; gap: 4px; border-width: 1px; }
-  .live-dot { width: 6px; height: 6px; }
   .chat-head { padding: 12px; gap: 10px; flex-wrap: nowrap; }
   .title-btn { flex: 1 1 auto; }
   .chat-head h2 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

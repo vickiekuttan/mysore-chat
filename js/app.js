@@ -229,7 +229,8 @@
     const stack = $('avatar-stack');
     stack.textContent = '';
     online.slice(0, 3).forEach((id) => stack.append(avatar(id, 'avatar-sm')));
-    $('online-count').textContent = window.matchMedia('(max-width: 560px)').matches
+    // Full wording like the design; only the smallest phones get the short form.
+    $('online-count').textContent = window.matchMedia('(max-width: 400px)').matches
       ? `${online.length} online`
       : `${online.length} ${online.length === 1 ? 'person is' : 'people are'} online`;
     const msgs = st.msgs.get(r.id) || [];
