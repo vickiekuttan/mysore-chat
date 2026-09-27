@@ -662,3 +662,4 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
 .invite-code-line span { color: var(--green-text); font-weight: 600; letter-spacing: 0.08em; }
 #btn-lock-toggle { gap: 6px; }
 #btn-lock-toggle .lock-ico { width: 11px; height: 13px; }
+.fine-link { color: #7fb8ff; }
