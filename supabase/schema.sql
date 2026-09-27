@@ -198,9 +198,10 @@ $$;
 
 
 -- ---------------------------------------------------------------------------
--- 4. Joining. Anyone can sign in (Google or email), but only a valid invite
---    link turns a sign-in into a member. Signed-in people without a profile
---    can't see or do anything.
+-- 4. Joining. The only way in: open an invite link, sign in with Google.
+--    Anyone can sign in with Google, but only a valid invite turns that into
+--    a member; signed-in people without a profile can't see or do anything.
+--    (Also switch the Email provider off in Supabase: see README.)
 -- ---------------------------------------------------------------------------
 
 -- Is this invite usable right now? Returns OK, INVITE_INVALID or INVITE_EXPIRED.
@@ -230,8 +231,8 @@ begin
   return 'OK';
 end $$;
 
--- Called right after signing in with an invite link: creates your profile.
--- The very first person ever to join becomes the founder.
+-- Called right after signing in with Google from an invite link: creates your
+-- profile. The very first person ever to join becomes the founder.
 create function public.join_with_invite(p_code text, p_username text) returns void
 language plpgsql security definer set search_path = public as $$
 declare
@@ -245,6 +246,12 @@ declare
 begin
   if v_uid is null then raise exception 'NOT_SIGNED_IN'; end if;
   if exists (select 1 from public.profiles where id = v_uid) then raise exception 'ALREADY_MEMBER'; end if;
+  -- Google accounts only, even if another sign-in method gets switched on by mistake.
+  if not exists (select 1 from auth.users u where u.id = v_uid
+                   and (u.raw_app_meta_data->>'provider' = 'google'
+                        or coalesce(u.raw_app_meta_data->'providers', '[]'::jsonb) ? 'google')) then
+    raise exception 'GOOGLE_ONLY';
+  end if;
 
   select * into v_inv from public.invites where code = v_code for update;
   v_state := public.invite_state(v_code);

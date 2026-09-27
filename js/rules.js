@@ -49,7 +49,7 @@
     INVITE_EXPIRED: 'That invite link has expired. Ask whoever sent it for a fresh one.',
     ALREADY_MEMBER: 'You are already a member.',
     NOT_SIGNED_IN: 'Sign in first.',
-    CONFIRM_EMAIL: 'Check your email for a confirmation link, then come back and sign in.',
+    GOOGLE_ONLY: 'Pazhampori chat only accepts Google accounts. Sign out and join with Google.',
     GROUP_LOCKED: 'This group is locked. Ask to join and an admin will decide.',
     NOT_LOCKED: 'That group is open. Just join it.',
     USERNAME_INVALID: 'Screen names are 3 to 20 letters, numbers or _.',

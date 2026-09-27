@@ -13,7 +13,7 @@ create role anon nologin; create role authenticated nologin; create role service
 create role supabase_auth_admin nologin;
 create schema auth; create schema storage;
 grant usage on schema auth, storage, public to anon, authenticated, supabase_auth_admin;
-create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb);
+create table auth.users (id uuid primary key default gen_random_uuid(), email text, raw_user_meta_data jsonb, raw_app_meta_data jsonb);
 grant insert, select on auth.users to supabase_auth_admin;
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
@@ -42,9 +42,10 @@ async function expectErr(name, uid, sql, params, code) {
   try { await as(uid, sql, params); ok(name, false, '(no error)'); }
   catch (e) { ok(name, !code || e.message.includes(code), `got: ${e.message}`); }
 }
-// Signing in (Google or email) creates an auth user; joining needs an invite.
-async function signIn(email) {
-  return (await db.query(`insert into auth.users (email) values ($1) returning id`, [email])).rows[0].id;
+// Signing in creates an auth user; joining needs an invite and a Google account.
+async function signIn(email, provider = 'google') {
+  return (await db.query(`insert into auth.users (email, raw_app_meta_data) values ($1, $2) returning id`,
+    [email, JSON.stringify({ provider, providers: [provider] })])).rows[0].id;
 }
 async function signup(username, code) {
   const id = await signIn(username + '@x.test');
@@ -83,6 +84,8 @@ const C = await signup('pixel_pete', code2);
 ok('one link brings in several people', (await su('select uses from invites where code=$1', [code2])).rows[0].uses === 2);
 ok('invited_by recorded', (await su('select invited_by from profiles where id=$1', [C])).rows[0].invited_by === A);
 ok('second user not admin', (await su('select is_admin from profiles where id=$1', [B])).rows[0].is_admin === false);
+const emailUser = await signIn('password@x.test', 'email');
+await expectErr('email/password accounts cannot join', emailUser, 'select public.join_with_invite($1,$2)', [code2, 'pw_person'], 'GOOGLE_ONLY');
 const stranger = await signIn('stranger@gmail.test');
 ok('signed in without invite: sees no messages', (await as(stranger, 'select * from messages')).rows.length === 0);
 ok('signed in without invite: sees no rooms', (await as(stranger, 'select * from rooms')).rows.length === 0);

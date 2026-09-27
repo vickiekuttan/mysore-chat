@@ -158,11 +158,6 @@
         signedIn = true;
         try { if (localStorage.getItem('pz_invite')) hasProfile = false; } catch (_) { /* ignore */ }
       },
-      inRecovery: () => false,
-      async signIn() { signedIn = true; return ME; },
-      async signUpEmail() { signedIn = true; hasProfile = false; return ME; },
-      async sendPasswordReset() {},
-      async setNewPassword() {},
       async checkInvite(code, username) {
         if (!code) return 'INVITE_INVALID';
         if (username !== undefined && username !== null) {

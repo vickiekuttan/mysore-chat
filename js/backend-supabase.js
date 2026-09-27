@@ -10,8 +10,8 @@
   }
   function fail(code) { const e = new Error(code); e.code = code; throw e; }
 
-  // Where Google and password-reset links send people back to: this page,
-  // without any #invite or ?code leftovers.
+  // Where Google sends people back to: this page, without any #invite or
+  // ?code leftovers.
   const pageUrl = () => location.origin + location.pathname;
 
   function createSupabaseBackend(url, key) {
@@ -25,7 +25,6 @@
     let presenceChannel = null;
     let presenceState = {};
     let userId = null;
-    let recovering = false;   // back from a reset-password email
 
     async function rpc(fn, args) {
       const { data, error } = await sb.rpc(fn, args);
@@ -50,12 +49,10 @@
         return userId;
       },
 
-      // fn(userId, event). event 'PASSWORD_RECOVERY' means the person came
-      // back from a reset-password email and should pick a new password.
       onAuthChange(fn) {
         sb.auth.onAuthStateChange((event, session) => {
           const id = session ? session.user.id : null;
-          if (event === 'PASSWORD_RECOVERY') { recovering = true; userId = id; setTimeout(() => fn(id, event), 0); return; }
+          // Deferred: Supabase asks not to call it back from inside this callback.
           if (id !== userId) { userId = id; setTimeout(() => fn(id, event), 0); }
         });
       },
@@ -65,33 +62,6 @@
         if (error) throw wrap(error);
         // The browser now leaves for Google and comes back to this page.
       },
-
-      async signIn(email, password) {
-        const { data, error } = await sb.auth.signInWithPassword({ email, password });
-        if (error) throw wrap(error);
-        userId = data.user.id;
-        return userId;
-      },
-
-      async signUpEmail(email, password) {
-        const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: pageUrl() } });
-        if (error) throw wrap(error);
-        if (!data.session) fail('CONFIRM_EMAIL');
-        userId = data.user.id;
-        return userId;
-      },
-
-      async sendPasswordReset(email) {
-        const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: pageUrl() });
-        if (error) throw wrap(error);
-      },
-
-      async setNewPassword(password) {
-        const { error } = await sb.auth.updateUser({ password });
-        if (error) throw wrap(error);
-        recovering = false;
-      },
-      inRecovery: () => recovering,
 
       checkInvite: (code, username) => rpc('check_signup', { p_code: code, p_username: username || null }),
       joinWithInvite: async (code, username) => {

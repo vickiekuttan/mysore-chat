@@ -16,7 +16,7 @@ These are enforced by the database itself (`supabase/schema.sql`), so nobody can
 | The big wipe | When Global chat and all groups together reach 1,000,000 words, every message in them is erased and everyone starts on a blank page. Groups themselves stay. Friend chats are not counted or erased |
 | Friends | Send a request, the other person accepts, then you get a private chat. Up to 200 words per message, no images |
 | Joining | Invite links only. Any member can make one: it works for 7 days, for any number of people, until its creator or an admin switches it off. Up to 5 live links per member |
-| Signing in | Google, or email + password |
+| Signing in | Google only. New people get in only by opening an invite link and signing in with Google |
 
 Every number above lives in the `settings` table. Change it there (Supabase > Table Editor > settings) and it takes effect immediately, no code change.
 
@@ -49,13 +49,9 @@ Download the repo and double-click `index.html`. With no Supabase details in `js
 3. Open `supabase/schema.sql` from this repo, copy all of it, paste it in, and click **Run**.
 4. The result at the bottom shows `your_first_invite_code` (valid for 30 days). Copy it. The first person to join with it becomes the **founder**.
 
-### 2. Turn off email confirmation
+### 2. Switch off email sign-in
 
-Supabase's built-in email sender sends only 2 emails an hour, and only to people on your Supabase team, so confirmation emails would never reach your friends ([Supabase docs](https://supabase.com/docs/guides/auth/auth-smtp)). Since nobody can join without an invite link anyway, skip confirmation:
-
-**Authentication** > **Sign In / Providers** > **Email** > switch off **Confirm email** > **Save**.
-
-This also means **"Forgot password?" emails won't arrive** until you connect your own email sender (for example Resend) under **Authentication** > **Emails** > **SMTP Settings**, which usually needs your own domain. People who join with Google never need a password.
+Pazhampori chat is Google-only. In Supabase open **Authentication** > **Sign In / Providers** > **Email** and switch the Email provider **off**, then **Save**. The database also refuses to make a member out of anything but a Google account, so this is a second lock on the same door.
 
 ### 3. Switch on Google sign-in
 
@@ -94,7 +90,7 @@ Open your site with your first invite code on the end:
 
 `https://vickiekuttan.github.io/Pazhampori-Chat/#invite=YOUR_CODE`
 
-Pick your screen name and join with Google or email. Then press **Invite** in the toolbar to make links for your friends.
+Pick your screen name and join with Google. Then press **Invite** in the toolbar to make links for your friends.
 
 ## Free plan limits to know about
 
@@ -109,7 +105,7 @@ Checked against [supabase.com/pricing](https://supabase.com/pricing) in Septembe
 
 - **Images are not deleted by the big wipe.** Files in Supabase Storage can't be removed from inside the database, so the wipe lists them in the `orphaned_images` table instead. Delete them from **Storage** > `chat-images` now and then, or storage will eventually fill up. Automating this (with a Supabase Edge Function) is a good first contribution.
 - **Who is online is not private.** "Online" and "typing" signals use a Supabase Realtime channel that anyone holding the public key could listen to. They carry only random account IDs and room IDs, never names or messages.
-- **Bans are per account, not per person.** A banned person could come back with a new email if someone gives them a fresh invite code.
+- **Bans are per account, not per person.** A banned person could come back with a different Google account if someone sends them a fresh invite link.
 - **No message deleting yet.** Admins can ban people but can't remove individual messages or groups.
 - **Anyone can sign in with Google, but only invited people become members.** Someone without an invite just sees "you need an invite link". Their empty sign-in still appears under **Authentication** > **Users**; delete those now and then if you like.
 - **Invite links are reusable for 7 days.** If a link gets posted somewhere public, switch it off from the **Invite** window. The member card doesn't show who invited whom yet, but it's recorded (`profiles.invited_by`).
@@ -117,7 +113,7 @@ Checked against [supabase.com/pricing](https://supabase.com/pricing) in Septembe
 
 ## Check the rules yourself
 
-The database rules come with 130 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
+The database rules come with 131 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
 
 ```bash
 npm install

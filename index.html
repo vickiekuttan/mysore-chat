@@ -44,58 +44,31 @@
 
         <!-- Members signing in -->
         <section class="auth-panel" id="panel-signin">
+          <p class="invite-hello">Welcome back. Sign in with the Google account you joined with.</p>
           <button class="btn btn-big btn-google" id="btn-google-signin" type="button">Continue with Google</button>
-          <div class="or"><span>or sign in with email</span></div>
-          <form class="auth-form" id="form-signin" novalidate>
-            <label class="field">Email
-              <input id="signin-email" type="email" autocomplete="email">
-            </label>
-            <label class="field">Password
-              <input id="signin-password" type="password" autocomplete="current-password">
-            </label>
-            <button class="btn btn-big" id="signin-submit" type="submit">Sign on</button>
-          </form>
-          <div class="auth-links">
-            <button class="link-btn" id="link-forgot" type="button">Forgot password?</button>
-            <button class="link-btn" id="link-have-invite" type="button">I have an invite</button>
-          </div>
+          <p class="fine-print">Pazhampori chat is invite-only. New here? Ask a member for an invite link.</p>
         </section>
 
         <!-- Invite page: opened from an invite link -->
         <section class="auth-panel" id="panel-invite" hidden>
           <p class="invite-hello" id="invite-hello">You're invited to Pazhampori chat.</p>
-          <label class="field">Invite code
-            <input id="invite-code-input" autocomplete="off" spellcheck="false" maxlength="20">
-          </label>
+          <p class="invite-code-line">Invite <span id="invite-code-show"></span></p>
           <label class="field">Pick a screen name
             <input id="invite-username" maxlength="20" spellcheck="false" autocomplete="nickname" placeholder="star_gazer">
             <small>3 to 20 letters, numbers or _. This is the name everyone sees.</small>
           </label>
           <button class="btn btn-big btn-google" id="btn-google-join" type="button">Join with Google</button>
-          <div class="or"><span>or create an account with email</span></div>
-          <form class="auth-form" id="form-join-email" novalidate>
-            <label class="field">Email
-              <input id="join-email" type="email" autocomplete="email">
-            </label>
-            <label class="field">Password
-              <input id="join-password" type="password" autocomplete="new-password">
-              <small>At least 6 characters.</small>
-            </label>
-            <button class="btn btn-big" id="join-submit" type="submit">Create account</button>
-          </form>
-          <p class="fine-print">Your email is only used to sign you in. Other members never see it.</p>
+          <p class="fine-print">Google is only used to sign you in. Other members see your screen name, never your email.</p>
           <div class="auth-links">
             <button class="link-btn" id="link-back-signin" type="button">Already a member? Sign in</button>
           </div>
         </section>
 
-        <!-- Signed in but not a member yet (e.g. just back from Google) -->
+        <!-- Signed in with Google but not a member yet -->
         <section class="auth-panel" id="panel-finish" hidden>
           <p id="finish-text">Almost in. Pick your screen name.</p>
           <form class="auth-form" id="form-finish" novalidate>
-            <label class="field">Invite code
-              <input id="finish-code" autocomplete="off" spellcheck="false" maxlength="20">
-            </label>
+            <p class="invite-code-line">Invite <span id="finish-code-show"></span></p>
             <label class="field">Screen name
               <input id="finish-username" maxlength="20" spellcheck="false" autocomplete="nickname">
               <small>3 to 20 letters, numbers or _.</small>
@@ -107,33 +80,7 @@
           </div>
         </section>
 
-        <!-- Forgot password -->
-        <section class="auth-panel" id="panel-forgot" hidden>
-          <p>Enter your email and we'll send a link to choose a new password.</p>
-          <form class="auth-form" id="form-forgot" novalidate>
-            <label class="field">Email
-              <input id="forgot-email" type="email" autocomplete="email">
-            </label>
-            <button class="btn btn-big" id="forgot-submit" type="submit">Send reset link</button>
-          </form>
-          <div class="auth-links">
-            <button class="link-btn" id="link-forgot-back" type="button">Back to sign in</button>
-          </div>
-        </section>
-
-        <!-- Back from a reset email -->
-        <section class="auth-panel" id="panel-newpass" hidden>
-          <form class="auth-form" id="form-newpass" novalidate>
-            <label class="field">New password
-              <input id="newpass" type="password" autocomplete="new-password">
-              <small>At least 6 characters.</small>
-            </label>
-            <button class="btn btn-big" id="newpass-submit" type="submit">Save password</button>
-          </form>
-        </section>
-
         <p class="form-error" id="auth-error" role="alert" hidden></p>
-        <p class="auth-ok" id="auth-ok" role="status" hidden></p>
         <p class="modem-line" id="modem-line">ATDT 555-0199 … CONNECT 56000</p>
       </div>
     </div>

@@ -648,3 +648,5 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
 .invite-row.is-current { background: #34302c; }
 .invite-pick { padding: 0; border: 0; background: none; cursor: pointer; color: var(--green-text); font: 600 13px var(--mono); }
 .invite-row-meta { font-size: 12px; color: var(--text-dim); }
+.invite-code-line { margin: 0; font-size: 13px; color: var(--text-dim); }
+.invite-code-line span { color: var(--green-text); font-weight: 600; letter-spacing: 0.08em; }

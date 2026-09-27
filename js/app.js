@@ -1193,9 +1193,7 @@
   const PANELS = {
     signin: 'Sign on to Pazhampori chat',
     invite: "You're invited",
-    finish: 'One last step',
-    forgot: 'Reset your password',
-    newpass: 'Choose a new password'
+    finish: 'One last step'
   };
 
   function inviteFromUrl() {
@@ -1211,17 +1209,15 @@
     $('signon').hidden = false;
     $('sb-you').hidden = true;
     $('sb-words').textContent = '';
-    $('sb-conn').textContent = backend.mode === 'demo' ? 'Demo mode: any email and password will do.' : 'Not connected';
+    $('sb-conn').textContent = backend.mode === 'demo' ? 'Demo mode: the Google button signs you straight in.' : 'Not connected';
     Object.keys(PANELS).forEach((k) => { $('panel-' + k).hidden = k !== name; });
     $('auth-title').textContent = PANELS[name];
-    authMsg(msg && msg.error, msg && msg.ok);
+    authMsg(msg && msg.error);
   }
 
-  function authMsg(error, ok) {
+  function authMsg(error) {
     $('auth-error').textContent = error || '';
     $('auth-error').hidden = !error;
-    $('auth-ok').textContent = ok || '';
-    $('auth-ok').hidden = !ok;
   }
 
   function busy(btn, on) {
@@ -1231,18 +1227,18 @@
 
   async function showInvite(code) {
     showPanel('invite');
-    $('invite-code-input').value = code || '';
-    $('invite-hello').textContent = "You're invited to Pazhampori chat. Pick a screen name, then join with Google or email.";
-    if (!code) return;
+    st.inviteCode = code;
+    $('invite-code-show').textContent = code;
+    $('invite-hello').textContent = "You're invited to Pazhampori chat. Pick a screen name, then join with your Google account.";
     try {
       const state = await backend.checkInvite(code);
       if (state !== 'OK') authMsg(PZ.ERRORS[state] || PZ.ERRORS.INVITE_INVALID);
     } catch (_) { /* checked again on join */ }
   }
 
-  // Checks the invite code and screen name typed on the invite page.
+  // Checks the invite (from the link) and the screen name typed on the invite page.
   async function readInviteForm() {
-    const code = $('invite-code-input').value.trim().toUpperCase();
+    const code = st.inviteCode;
     const name = $('invite-username').value.trim();
     if (!code) throw Object.assign(new Error('INVITE_INVALID'), { code: 'INVITE_INVALID' });
     const state = await backend.checkInvite(code, name);
@@ -1255,7 +1251,6 @@
   let finishingFor = null;
   // Runs after any sign-in: members go straight in, others finish joining.
   async function afterSignIn(id) {
-    if (backend.inRecovery()) return showPanel('newpass');
     if (!id || finishingFor === id || (entered && st.meId === id)) return;
     finishingFor = id;
     st.meId = id;
@@ -1281,15 +1276,20 @@
       }
     }
     finishingFor = null;
-    showFinish(code || '', name || '', code ? null
-      : "You're signed in, but you're not a member yet. You need an invite link from someone who is.");
+    showFinish(code || '', name || '');
   }
 
+  // Signed in with Google but no profile yet. Without an invite link there
+  // is nothing to do here except sign out.
   function showFinish(code, name, error) {
     showPanel('finish', { error });
-    $('finish-code').value = code || '';
+    st.inviteCode = code || null;
+    $('finish-code-show').textContent = code || '';
     $('finish-username').value = name || '';
-    $('finish-text').textContent = code ? 'Almost in. Check your screen name and enter.' : 'Paste the invite code from your link, pick a screen name, and enter.';
+    $('form-finish').hidden = !code;
+    $('finish-text').textContent = code
+      ? 'Almost in. Check your screen name and enter.'
+      : "You're signed in, but you're not a member. Pazhampori chat is invite-only: open the invite link a member sent you, then join with Google.";
   }
 
   // ---------------------------------------------------------------- boot
@@ -1370,27 +1370,16 @@
   }
 
   function wire() {
-    // Sign on
+    // Sign on: Google only, and new people only through an invite link
     $('btn-google-signin').addEventListener('click', async (e) => {
-      busy(e.currentTarget, true);
+      const btn = e.currentTarget;
+      authMsg();
+      busy(btn, true);
       try {
         await backend.signInWithGoogle();
         if (backend.mode === 'demo') await afterSignIn(await backend.currentUserId());
-      } catch (err) { authMsg(PZ.friendlyError(err)); busy(e.currentTarget, false); }
+      } catch (err) { authMsg(PZ.friendlyError(err)); busy(btn, false); }
     });
-    $('form-signin').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = $('signin-email').value.trim();
-      const pw = $('signin-password').value;
-      if (!email || !pw) return authMsg('Enter your email and password.');
-      busy($('signin-submit'), true);
-      try { await afterSignIn(await backend.signIn(email, pw)); }
-      catch (err) { authMsg(PZ.friendlyError(err)); $('modem-line').textContent = 'NO CARRIER'; }
-      finally { $('signin-submit').disabled = false; }
-    });
-    $('link-forgot').addEventListener('click', () => { showPanel('forgot'); $('forgot-email').value = $('signin-email').value; });
-    $('link-forgot-back').addEventListener('click', () => showPanel('signin'));
-    $('link-have-invite').addEventListener('click', () => showInvite(store.get(INVITE_KEY) || ''));
     $('link-back-signin').addEventListener('click', () => showPanel('signin'));
 
     $('btn-google-join').addEventListener('click', async (e) => {
@@ -1403,60 +1392,22 @@
         if (backend.mode === 'demo') await afterSignIn(await backend.currentUserId());
       } catch (err) { authMsg(PZ.friendlyError(err)); busy(btn, false); }
     });
-    $('form-join-email').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      authMsg();
-      const email = $('join-email').value.trim();
-      const pw = $('join-password').value;
-      if (!email || !pw) return authMsg('Enter an email and a password.');
-      if (pw.length < 6) return authMsg('Passwords need at least 6 characters.');
-      busy($('join-submit'), true);
-      try {
-        await readInviteForm();
-        await afterSignIn(await backend.signUpEmail(email, pw));
-      } catch (err) { authMsg(PZ.friendlyError(err)); $('modem-line').textContent = 'NO CARRIER'; }
-      finally { $('join-submit').disabled = false; }
-    });
 
     $('form-finish').addEventListener('submit', async (e) => {
       e.preventDefault();
       authMsg();
-      const code = $('finish-code').value.trim().toUpperCase();
       const name = $('finish-username').value.trim();
       busy($('finish-submit'), true);
       try {
-        await backend.joinWithInvite(code, name);
+        await backend.joinWithInvite(st.inviteCode, name);
         store.del(INVITE_KEY); store.del(NAME_KEY);
         await enterChat(st.meId);
       } catch (err) { authMsg(PZ.friendlyError(err)); }
       finally { busy($('finish-submit'), false); }
     });
     $('link-finish-signout').addEventListener('click', async () => {
-      store.del(INVITE_KEY); store.del(NAME_KEY);
+      store.del(NAME_KEY);
       try { await backend.signOut(); } finally { location.reload(); }
-    });
-
-    $('form-forgot').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = $('forgot-email').value.trim();
-      if (!email) return authMsg('Enter your email.');
-      busy($('forgot-submit'), true);
-      try {
-        await backend.sendPasswordReset(email);
-        authMsg(null, 'If that email has an account, a reset link is on its way. Check your spam folder too.');
-      } catch (err) { authMsg(PZ.friendlyError(err)); }
-      finally { busy($('forgot-submit'), false); }
-    });
-    $('form-newpass').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const pw = $('newpass').value;
-      if (pw.length < 6) return authMsg('Passwords need at least 6 characters.');
-      busy($('newpass-submit'), true);
-      try {
-        await backend.setNewPassword(pw);
-        await afterSignIn(await backend.currentUserId());
-      } catch (err) { authMsg(PZ.friendlyError(err)); }
-      finally { busy($('newpass-submit'), false); }
     });
 
     // Toolbar and rooms
@@ -1617,10 +1568,17 @@
     }
     backend = live ? PZ.createSupabaseBackend(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : PZ.createDemoBackend();
     document.body.classList.toggle('is-demo', backend.mode === 'demo');
-    backend.onAuthChange((id, event) => {
-      if (event === 'PASSWORD_RECOVERY') return showPanel('newpass');
+    backend.onAuthChange((id) => {
       if (id) afterSignIn(id);
       else if (entered) location.reload();
+    });
+    // An invite link opened in a tab that already shows this page.
+    window.addEventListener('hashchange', () => {
+      const c = inviteFromUrl();
+      if (!c) return;
+      store.set(INVITE_KEY, c);
+      history.replaceState(null, '', location.pathname);
+      if (!entered) showInvite(c);
     });
     const id = await backend.currentUserId();
     // Tidy the address bar once Supabase has read any ?code= from Google.
