@@ -188,7 +188,7 @@
     st.current = roomId;
     st.unread.delete(roomId);
     note('');
-    renderRooms(); renderHead(); renderComposer(); renderPeople();
+    renderRooms(); renderHead(); renderComposer(); renderPeople(); renderTyping();
     const joined = isMemberOf(roomId);
     $('composer').hidden = !joined;
     renderJoinPrompt();
@@ -476,12 +476,21 @@
     const names = Object.values(st.presence)
       .filter((p) => p && p.typing && p.room_id === st.current && p.user_id !== st.meId && st.profiles.has(p.user_id))
       .map((p) => nameOf(p.user_id));
+    // The bar only shows while someone else is typing in this room.
     const bar = $('typing-bar');
-    bar.classList.toggle('is-idle', !names.length);
-    $('typing-text').textContent = !names.length ? 'nobody is typing'
-      : names.length === 1 ? `${names[0]} is typing`
-      : names.length === 2 ? `${names[0]} and ${names[1]} are typing`
-      : `${names.length} people are typing`;
+    const show = names.length > 0;
+    if (show) {
+      $('typing-text').textContent = names.length === 1 ? `${names[0]} is typing`
+        : names.length === 2 ? `${names[0]} and ${names[1]} are typing`
+        : `${names.length} people are typing`;
+    }
+    if (bar.hidden === !show) return;
+    // Showing or hiding the bar changes the height of the message list. If you
+    // were reading the newest messages, keep them in view.
+    const box = $('messages');
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    bar.hidden = !show;
+    if (atBottom) box.scrollTop = box.scrollHeight;
   }
 
   // ---------------------------------------------------------------- people
