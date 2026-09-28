@@ -1204,6 +1204,25 @@
     return m ? m[1].toUpperCase() : null;
   }
 
+  // When Google sign-in fails, Supabase sends people back here with
+  // ?error=...&error_description=... (or the same after #). Read it before
+  // anything tidies the address bar, so the page can say what went wrong
+  // instead of quietly showing the start again.
+  function signInErrorFromUrl() {
+    const params = new URLSearchParams(location.search);
+    new URLSearchParams(location.hash.replace(/^#/, '')).forEach((v, k) => { if (!params.has(k)) params.set(k, v); });
+    const error = params.get('error');
+    const desc = params.get('error_description') || '';
+    if (!error && !desc) return null;
+    if (error === 'access_denied') return 'Google sign-in was cancelled. Try again when you are ready.';
+    if (/exchange external code/i.test(desc)) {
+      return 'Google sign-in could not finish because the chat\'s Google setup was rejected. ' +
+        'That is a problem on our side, not yours. Try again in a few minutes, and if it keeps happening, tell whoever invited you.';
+    }
+    if (/signups? not allowed/i.test(desc)) return 'New sign-ups are switched off right now.';
+    return 'Google sign-in did not finish: ' + (desc || error).slice(0, 200);
+  }
+
   function showPanel(name, msg) {
     entered = false;
     $('toolbar').hidden = true;
@@ -1228,8 +1247,8 @@
     $('modem-line').textContent = on ? 'ATDT 555-0199 … dialing …' : 'ATDT 555-0199 … CONNECT 56000';
   }
 
-  async function showInvite(code) {
-    showPanel('invite');
+  async function showInvite(code, error) {
+    showPanel('invite', { error });
     st.inviteCode = code;
     $('invite-code-show').textContent = code;
     $('invite-hello').textContent = "You're invited to Pazhampori chat. Pick a screen name, then join with your Google account.";
@@ -1583,6 +1602,7 @@
 
   async function start() {
     wire();
+    const signInError = signInErrorFromUrl();
     const linkCode = inviteFromUrl();
     if (linkCode) store.set(INVITE_KEY, linkCode);
     const live = cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY;
@@ -1609,8 +1629,8 @@
     if (location.hash || location.search) history.replaceState(null, '', location.pathname);
     if (id) return afterSignIn(id);
     const code = linkCode || store.get(INVITE_KEY);
-    if (code) return showInvite(code);
-    showPanel('signin');
+    if (code) return showInvite(code, signInError);
+    showPanel('signin', { error: signInError });
   }
 
   start();
