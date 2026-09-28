@@ -1494,13 +1494,36 @@
     });
     input.addEventListener('blur', () => document.body.classList.remove('kb-open'));
 
-    $('img-input').addEventListener('change', (e) => {
-      const f = e.target.files && e.target.files[0];
-      e.target.value = '';
-      if (!f) return;
+    const MAX_IMAGE = 5 * 1024 * 1024;
+
+    // Big screenshots can be over 5 MB. Shrink those to a JPEG (longest side
+    // 2560px) instead of refusing them. GIFs are left alone so they keep moving.
+    async function shrinkIfNeeded(f) {
+      if (f.size <= MAX_IMAGE || f.type === 'image/gif' || !window.createImageBitmap) return f;
+      try {
+        const bmp = await createImageBitmap(f);
+        const scale = Math.min(1, 2560 / Math.max(bmp.width, bmp.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(bmp.width * scale));
+        c.height = Math.max(1, Math.round(bmp.height * scale));
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(bmp, 0, 0, c.width, c.height);
+        const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
+        if (!blob || blob.size > MAX_IMAGE) return f;
+        return new File([blob], (f.name || 'image').replace(/\.[^.]*$/, '') + '.jpg', { type: 'image/jpeg' });
+      } catch (_) { return f; }
+    }
+
+    // One path for images, whether picked with the button or pasted.
+    async function pickImage(f) {
+      if (!f || $('composer').hidden) return;
+      if (limits().dm) return note(PZ.ERRORS.NO_IMAGES_FOR_FRIENDS, 'error');
       if (lockState()) return note(PZ.ERRORS.IMAGE_LOCKED, 'error');
       if (!/^image\/(png|jpeg|gif|webp)$/.test(f.type)) return note('Only PNG, JPEG, GIF or WebP images.', 'error');
-      if (f.size > 5 * 1024 * 1024) return note('That image is too big (5 MB max).', 'error');
+      f = await shrinkIfNeeded(f);
+      if (f.size > MAX_IMAGE) return note('That image is too big (5 MB max).', 'error');
       const words = PZ.countWords(input.value);
       if (words > limits().words) return note(`Your caption has ${words} words. The limit is ${limits().words}.`, 'error');
       st.pendingFile = f;
@@ -1512,7 +1535,34 @@
         (words ? ` Your typed text (${words} word${words === 1 ? '' : 's'}) goes with it as a caption.` : '');
       $('dlg-image').returnValue = '';
       $('dlg-image').showModal();
+    }
+
+    $('img-input').addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      pickImage(f);
     });
+
+    // Paste an image (Ctrl+V / Cmd+V) into the message box, or anywhere in
+    // the chat that isn't another text field. Plain text pastes as usual.
+    document.addEventListener('paste', (e) => {
+      if (!entered || document.querySelector('dialog[open]')) return;
+      const t = e.target;
+      const otherField = t && t !== input &&
+        (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+      if (otherField) return;
+      const dt = e.clipboardData;
+      if (!dt) return;
+      let f = Array.from(dt.files || []).find((x) => /^image\//.test(x.type));
+      if (!f) {
+        const item = Array.from(dt.items || []).find((x) => x.kind === 'file' && /^image\//.test(x.type));
+        f = item && item.getAsFile();
+      }
+      if (!f) return;
+      e.preventDefault();
+      pickImage(f);
+    });
+
     $('dlg-image').addEventListener('close', () => {
       const f = st.pendingFile;
       st.pendingFile = null;
