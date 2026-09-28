@@ -80,9 +80,11 @@ create table public.rooms (
   created_by uuid references public.profiles(id) on delete set null,
   dm_key     text unique,            -- "smallerUserId:largerUserId" for friend chats
   locked     boolean not null default false,  -- locked groups: admin invite or approval only
+  cooldowns  boolean not null default true,   -- image cooldown + flood control; admins can switch them off in a group
   created_at timestamptz not null default now(),
   check (kind <> 'group' or name ~ '^[a-z0-9_]{2,24}$'),
   check (not locked or kind = 'group'),
+  constraint rooms_cooldowns_groups_only check (cooldowns or kind = 'group'),
   check ((kind = 'dm') = (dm_key is not null))
 );
 create unique index rooms_one_global  on public.rooms (kind) where kind = 'global';
@@ -184,15 +186,24 @@ language sql volatile as $$
   select upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10))
 $$;
 
--- Used by the Storage policy: you may upload only while you are allowed to send.
-create function public.can_upload_image() returns boolean
+-- Used by the Storage policy: you may upload only while you are allowed to
+-- send. Files go to <your id>/<room id>/<file>; uploads for a group with
+-- cooldowns switched off (that you can post in) skip the cooldown check.
+create function public.can_upload_image(p_name text) returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (
     select 1 from public.profiles
     where id = auth.uid()
       and banned_at is null
-      and (image_locked_until is null or image_locked_until <= now())
-      and (muted_until        is null or muted_until        <= now())
+      and (
+        ((image_locked_until is null or image_locked_until <= now())
+          and (muted_until   is null or muted_until        <= now()))
+        or (split_part(p_name, '/', 2) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            and exists (select 1 from public.rooms r
+                         where r.id::text = split_part(p_name, '/', 2)
+                           and r.kind = 'group' and not r.cooldowns
+                           and public.can_read_room(r.id)))
+      )
   )
 $$;
 
@@ -281,6 +292,8 @@ end $$;
 -- Errors are short codes the page turns into friendly text:
 --   NOT_A_MEMBER, ROOM_NOT_FOUND, NOT_IN_ROOM, EMPTY, IMAGE_LOCKED, SPAM_WAIT,
 --   TOO_MANY_WORDS, TOO_LONG, NO_IMAGES_FOR_FRIENDS, BAD_IMAGE
+-- IMAGE_LOCKED and SPAM_WAIT only apply in Global and in groups that keep
+-- cooldowns on; friend chats and cooldown-free groups skip them.
 create function public.send_message(p_room uuid, p_body text default '', p_image_path text default null)
 returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -296,6 +309,7 @@ declare
   v_id     bigint;
   v_wiped  boolean := false;
   v_global uuid;
+  v_cool   boolean;
 begin
   -- Lock this person's row so two fast sends are checked one after the other.
   select * into v_prof from public.profiles where id = v_uid for update;
@@ -308,8 +322,10 @@ begin
 
   select * into v_set from public.settings where id = 1;
 
-  if v_prof.image_locked_until > now() then raise exception 'IMAGE_LOCKED'; end if;
-  if v_prof.muted_until        > now() then raise exception 'SPAM_WAIT';    end if;
+  -- Cooldowns only count in Global and in groups that keep them on.
+  v_cool := v_room.kind = 'global' or (v_room.kind = 'group' and v_room.cooldowns);
+  if v_cool and v_prof.image_locked_until > now() then raise exception 'IMAGE_LOCKED'; end if;
+  if v_cool and v_prof.muted_until        > now() then raise exception 'SPAM_WAIT';    end if;
 
   v_words := public.count_words(v_body);
   if v_words = 0 and p_image_path is null then raise exception 'EMPTY'; end if;
@@ -338,23 +354,28 @@ begin
   returning id into v_id;
 
   -- Image rule: 2 minutes of silence after sending an image.
-  if p_image_path is not null then
+  if v_cool and p_image_path is not null then
     update public.profiles
        set image_locked_until = now() + make_interval(secs => v_set.image_lock_seconds)
      where id = v_uid;
   end if;
 
-  if v_room.kind <> 'dm' then
-    -- Spam rule: too many messages inside the window means a wait.
+  -- Spam rule: too many messages inside the window means a wait. Only
+  -- messages in rooms where cooldowns apply are counted.
+  if v_cool then
     select count(*) into v_recent
       from public.messages m join public.rooms r on r.id = m.room_id
-     where m.user_id = v_uid and r.kind <> 'dm' and m.kind <> 'system'
+     where m.user_id = v_uid and m.kind <> 'system'
+       and (r.kind = 'global' or (r.kind = 'group' and r.cooldowns))
        and m.created_at > now() - make_interval(secs => v_set.spam_window_seconds);
     if v_recent >= v_set.spam_count then
       update public.profiles
          set muted_until = now() + make_interval(secs => v_set.spam_wait_seconds)
        where id = v_uid;
     end if;
+  end if;
+
+  if v_room.kind <> 'dm' then
 
     -- Word counter and the 1,000,000-word wipe.
     update public.settings set total_words = total_words + v_words where id = 1
@@ -527,6 +548,19 @@ begin
       -- Open groups need no invitations or requests.
       delete from public.room_requests where room_id = p_room;
     end if;
+  end if;
+end $$;
+
+-- Admins only: switch a group's cooldowns (image cooldown + flood control)
+-- off or back on. Global chat always keeps them.
+create function public.set_group_cooldowns(p_room uuid, p_on boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.am_admin() then raise exception 'NOT_ADMIN'; end if;
+  update public.rooms set cooldowns = p_on where id = p_room and kind = 'group' and cooldowns <> p_on;
+  if found then
+    insert into public.messages (room_id, user_id, kind, body)
+    values (p_room, auth.uid(), 'system', case when p_on then 'COOLDOWNS_ON' else 'COOLDOWNS_OFF' end);
   end if;
 end $$;
 
@@ -770,13 +804,13 @@ create policy "see locked-group requests" on public.room_requests
 revoke execute on all functions in schema public from anon, authenticated, public;
 grant  execute on function public.check_signup(text, text) to anon, authenticated;
 grant  execute on function public.count_words(text), public.is_member(), public.am_admin(),
-         public.can_read_room(uuid), public.can_upload_image(),
+         public.can_read_room(uuid), public.can_upload_image(text),
          public.join_with_invite(text, text), public.create_invite(), public.revoke_invite(text),
          public.send_message(uuid, text, text),
          public.create_group(text, text, boolean), public.join_room(uuid), public.leave_room(uuid),
          public.request_to_join(uuid), public.dismiss_room_request(uuid),
          public.invite_to_group(uuid, uuid), public.answer_join_request(uuid, uuid, boolean),
-         public.set_group_locked(uuid, boolean),
+         public.set_group_locked(uuid, boolean), public.set_group_cooldowns(uuid, boolean),
          public.send_friend_request(uuid), public.respond_friend_request(bigint, boolean),
          public.set_admin(uuid, boolean), public.ban_user(uuid, boolean)
   to authenticated;
@@ -794,7 +828,7 @@ create policy "members upload images to own folder" on storage.objects
   for insert to authenticated with check (
     bucket_id = 'chat-images'
     and (storage.foldername(name))[1] = auth.uid()::text
-    and public.can_upload_image()
+    and public.can_upload_image(name)
   );
 
 create policy "members view images" on storage.objects

@@ -107,7 +107,8 @@
         let path = null;
         if (file) {
           const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'png';
-          path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+          // <your id>/<room id>/<file>: the upload rule checks the room's cooldowns.
+          path = `${userId}/${roomId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
           const { error } = await sb.storage.from(BUCKET).upload(path, file, {
             contentType: file.type, upsert: false
           });
@@ -128,6 +129,7 @@
       inviteToGroup: (room, user) => rpc('invite_to_group', { p_room: room, p_user: user }),
       answerJoinRequest: (room, user, accept) => rpc('answer_join_request', { p_room: room, p_user: user, p_accept: accept }),
       setGroupLocked: (room, locked) => rpc('set_group_locked', { p_room: room, p_locked: locked }),
+      setGroupCooldowns: (room, on) => rpc('set_group_cooldowns', { p_room: room, p_on: on }),
 
       createInvite: () => rpc('create_invite'),
       revokeInvite: (code) => rpc('revoke_invite', { p_code: code }),

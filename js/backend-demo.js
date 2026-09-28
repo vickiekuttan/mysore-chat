@@ -187,8 +187,11 @@
         const room = rooms.find((r) => r.id === roomId);
         if (!room) fail('ROOM_NOT_FOUND');
         if (!canRead(roomId)) fail('NOT_IN_ROOM');
-        if (p.image_locked_until && Date.parse(p.image_locked_until) > now()) fail('IMAGE_LOCKED');
-        if (p.muted_until && Date.parse(p.muted_until) > now()) fail('SPAM_WAIT');
+        // Cooldowns: Global always, groups unless switched off, never friend chats.
+        const coolIn = (r) => r.kind === 'global' || (r.kind === 'group' && r.cooldowns !== false);
+        const cool = coolIn(room);
+        if (cool && p.image_locked_until && Date.parse(p.image_locked_until) > now()) fail('IMAGE_LOCKED');
+        if (cool && p.muted_until && Date.parse(p.muted_until) > now()) fail('SPAM_WAIT');
         const text = String(body || '').trim();
         const words = window.PZ.countWords(text);
         if (!words && !file) fail('EMPTY');
@@ -201,14 +204,16 @@
         if (file) { path = ME + '/' + uid(); images.set(path, URL.createObjectURL(file)); }
         const m = add(roomId, ME, text, file ? 'image' : 'text', 0, path);
         emit('message', m);
-        if (file) p.image_locked_until = iso(now() + S.image_lock_seconds * 1000);
+        if (cool && file) p.image_locked_until = iso(now() + S.image_lock_seconds * 1000);
+        if (cool) {
+          const since = now() - S.spam_window_seconds * 1000;
+          const recent = messages.filter((x) => x.user_id === ME && x.kind !== 'system' &&
+            Date.parse(x.created_at) > since && coolIn(rooms.find((r) => r.id === x.room_id))).length;
+          if (recent >= S.spam_count) p.muted_until = iso(now() + S.spam_wait_seconds * 1000);
+        }
 
         let wiped = false;
         if (!dm) {
-          const since = now() - S.spam_window_seconds * 1000;
-          const recent = messages.filter((x) => x.user_id === ME && x.kind !== 'system' &&
-            Date.parse(x.created_at) > since && rooms.find((r) => r.id === x.room_id).kind !== 'dm').length;
-          if (recent >= S.spam_count) p.muted_until = iso(now() + S.spam_wait_seconds * 1000);
           S.total_words += words;
           if (S.total_words >= S.wipe_at_words) {
             for (let i = messages.length - 1; i >= 0; i--) {
@@ -289,6 +294,14 @@
         emit('room', Object.assign({}, r));
         emit('message', add(roomId, ME, locked ? 'LOCKED' : 'UNLOCKED', 'system'));
         if (!locked) roomRequests.filter((q) => q.room_id === roomId).forEach((q) => dropRequest(roomId, q.user_id));
+      },
+      async setGroupCooldowns(roomId, on) {
+        if (!me().is_admin) fail('NOT_ADMIN');
+        const r = rooms.find((x) => x.id === roomId);
+        if (!r || r.kind !== 'group' || (r.cooldowns !== false) === on) return;
+        r.cooldowns = on;
+        emit('room', Object.assign({}, r));
+        emit('message', add(roomId, ME, on ? 'COOLDOWNS_ON' : 'COOLDOWNS_OFF', 'system'));
       },
       async leaveRoom(id) {
         const i = memberships.findIndex((m) => m.room_id === id && m.user_id === ME);

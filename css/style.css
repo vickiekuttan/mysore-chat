@@ -552,6 +552,10 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
   body.kb-open .chat-head { padding-block: 8px; }
   #btn-lock-toggle { padding: 5px 7px; }
   #btn-lock-toggle .lock-label { display: none; }
+  #btn-cooldown-toggle { padding: 5px 7px; }
+  #btn-cooldown-toggle .cool-label { display: none; }
+  /* Admins see two extra buttons here: drop the little avatars so the room name fits */
+  .chat-head:has(#btn-cooldown-toggle:not([hidden])) .avatar-stack { display: none; }
   .toolbar { padding: 8px; gap: 6px; }
   .toolbar .btn { font-size: 13px; padding: 5px 7px; gap: 5px; }
   .toolbar .btn svg { width: 13px; height: 13px; }
@@ -640,6 +644,13 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
   max-width: 100%;
 }
 .chat-head .btn-sm { font-size: 13px; padding: 5px 8px; }
+/* Admin buttons (lock, cooldowns) drop their words when the header is tight,
+   so the room name and the online count keep one line. */
+.chat-head { container-type: inline-size; }
+@container (max-width: 780px) {
+  #btn-lock-toggle .lock-label, #btn-cooldown-toggle .cool-label { display: none; }
+  #btn-lock-toggle, #btn-cooldown-toggle { padding: 5px 7px; }
+}
 
 /* ------------------------------------------------------------- invite links */
 .invite-link {
@@ -660,4 +671,7 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
 .invite-code-line span { color: var(--green-text); font-weight: 600; letter-spacing: 0.08em; }
 #btn-lock-toggle { gap: 6px; }
 #btn-lock-toggle .lock-ico { width: 11px; height: 13px; }
+#btn-cooldown-toggle { gap: 6px; }
+#btn-cooldown-toggle .cool-ico { width: 11px; height: 13px; }
+#btn-cooldown-toggle.is-off { color: var(--yellow); }
 .fine-link { color: #7fb8ff; }

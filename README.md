@@ -13,6 +13,7 @@ These are enforced by the database itself (`supabase/schema.sql`), so nobody can
 | Words per message in Global chat and groups | 8 (and 160 characters) |
 | Flood control | 10 messages within 60 seconds means a 5-minute wait |
 | Images | Allowed in Global chat and groups. After sending one, you can't send anything for 2 minutes |
+| Where cooldowns apply | The image cooldown and flood control always apply in Global chat, and in groups unless an admin switches them off for that group. Friend chats never have them. A cooldown from Global doesn't stop you posting in a group that has them off |
 | The big wipe | When Global chat and all groups together reach 1,000,000 words, every message in them is erased and everyone starts on a blank page. Groups themselves stay. Friend chats are not counted or erased |
 | Friends | Send a request, the other person accepts, then you get a private chat. Up to 200 words per message, no images |
 | Joining | Invite links only. Any member can make one: it works for 7 days, for any number of people, until its creator or an admin switches it off. Up to 5 live links per member |
@@ -28,6 +29,13 @@ Every number above lives in the `settings` table. Change it there (Supabase > Ta
 - **A ban** locks the person out right away: they can't read, post, upload, invite or send friend requests. Their unused invite codes and pending friend requests are deleted. An admin can unban them at any time.
 - **Admins can't be banned directly.** Make them a regular first. The founder can never be banned.
 - **Every admin action is announced** in Global chat, IRC style: `*** ADMIN_Jen sets mode +o cyberSuze (now an admin)`.
+
+## Groups without cooldowns
+
+- **Admins can switch cooldowns off in any group** with the **Cooldowns off** button at the top of it (an hourglass on phones). Press it again to switch them back on.
+- In that group, sending an image doesn't lock you and there's no flood wait. The 8-word limit still applies, and messages still count toward the big wipe.
+- The group is told when it happens (`*** ADMIN_Jen switched off cooldowns in #skate_spot`), and its info line says **no cooldowns**.
+- Global chat always keeps its cooldowns.
 
 ## Locked groups
 
@@ -113,7 +121,7 @@ Checked against [supabase.com/pricing](https://supabase.com/pricing) in Septembe
 
 ## Check the rules yourself
 
-The database rules come with 131 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
+The database rules come with 155 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
 
 ```bash
 npm install
@@ -131,6 +139,7 @@ js/app.js                  everything you see and click
 js/backend-supabase.js     talks to Supabase
 js/backend-demo.js         the pretend server for demo mode
 supabase/schema.sql        tables, rules, permissions (run once in Supabase)
+supabase/migrations/       updates for a database set up from an older schema.sql
 supabase/tests/            automated checks for the rules
 assets/logo*.png           the logo (fritter + lettering) at 1x, 2x and full size
 assets/favicon.png         the browser-tab icon

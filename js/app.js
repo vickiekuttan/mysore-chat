@@ -227,6 +227,15 @@
     lockBtn.querySelector('.lock-label').textContent = r.locked ? 'Unlock group' : 'Lock group';
     lockBtn.setAttribute('aria-label', r.locked ? 'Unlock group' : 'Lock group');
     lockBtn.title = r.locked ? 'Unlock: let anyone join this group' : 'Lock: only people an admin lets in can join';
+    const coolBtn = $('btn-cooldown-toggle');
+    const coolOn = cooldownsIn(r);
+    coolBtn.hidden = !(r.kind === 'group' && amAdmin());
+    coolBtn.classList.toggle('is-off', !coolOn);
+    coolBtn.querySelector('.cool-label').textContent = coolOn ? 'Cooldowns off' : 'Cooldowns on';
+    coolBtn.setAttribute('aria-label', coolOn ? 'Switch cooldowns off in this group' : 'Switch cooldowns back on in this group');
+    coolBtn.title = coolOn
+      ? 'Switch off the image cooldown and flood control in this group'
+      : 'Cooldowns are off here. Switch the image cooldown and flood control back on';
     const online = onlineIds();
     const stack = $('avatar-stack');
     stack.textContent = '';
@@ -245,7 +254,8 @@
       $('conv-meta').textContent = `${date} • ${st.settings.max_words_friends} words max • no images`;
     } else {
       $('conv-label').textContent = 'Live conversation';
-      $('conv-meta').textContent = `${date} • ${count} message${count === 1 ? '' : 's'}`;
+      $('conv-meta').textContent = `${date} • ${count} message${count === 1 ? '' : 's'}` +
+        (r.kind === 'group' && !cooldownsIn(r) ? ' • no cooldowns' : '');
     }
   }
 
@@ -270,13 +280,15 @@
     if (m.body === 'UNBANNED') return `*** ${target} was unbanned by ${who}`;
     if (m.body === 'LOCKED') return `*** ${who} locked #${r ? r.name : 'this group'}: invite only from now on`;
     if (m.body === 'UNLOCKED') return `*** ${who} unlocked #${r ? r.name : 'this group'}: anyone can join`;
+    if (m.body === 'COOLDOWNS_OFF') return `*** ${who} switched off cooldowns in #${r ? r.name : 'this group'}: no image or flood waits here`;
+    if (m.body === 'COOLDOWNS_ON') return `*** ${who} switched cooldowns back on in #${r ? r.name : 'this group'}`;
     return `★ ${m.body}`;
   }
 
   function messageRow(m, flash) {
     const r = st.rooms.get(m.room_id);
     if (m.kind === 'system' || m.kind === 'local') {
-      const mode = { PROMOTED: ' sys-mode', DEMOTED: ' sys-mode', BANNED: ' sys-ban', UNBANNED: ' sys-mode', LOCKED: ' sys-mode', UNLOCKED: ' sys-mode', WIPE: ' sys-wipe' }[m.body] || '';
+      const mode = { PROMOTED: ' sys-mode', DEMOTED: ' sys-mode', BANNED: ' sys-ban', UNBANNED: ' sys-mode', LOCKED: ' sys-mode', UNLOCKED: ' sys-mode', COOLDOWNS_OFF: ' sys-mode', COOLDOWNS_ON: ' sys-mode', WIPE: ' sys-wipe' }[m.body] || '';
       return el('div', 'sys' + (m.kind === 'local' ? '' : mode), m.kind === 'local' ? m.body : systemText(m, r));
     }
     const p = st.profiles.get(m.user_id);
@@ -378,9 +390,16 @@
     return `${s} seconds`;
   }
 
+  // The image cooldown and flood control apply in Global chat and in groups
+  // unless an admin switched them off. Never in friend chats.
+  function cooldownsIn(r) {
+    return !!r && (r.kind === 'global' || (r.kind === 'group' && r.cooldowns !== false));
+  }
+
+  // Your lock, if any, in the room you're looking at.
   function lockState() {
     const p = me();
-    if (!p) return null;
+    if (!p || !cooldownsIn(room())) return null;
     const img = secsLeft(p.image_locked_until);
     const spam = secsLeft(p.muted_until);
     if (img >= spam && img > 0) return { kind: 'image', secs: img };
@@ -414,7 +433,9 @@
     if (!lock && !n.classList.contains('is-error') && !n.classList.contains('is-ok')) {
       note(lim.dm
         ? 'Friend chat: longer messages, no images.'
-        : `Rules: ${st.settings.max_words_public} words per message • ${st.settings.spam_count} messages a minute max • sending an image locks you for ${imageLockText()}`);
+        : cooldownsIn(room())
+          ? `Rules: ${st.settings.max_words_public} words per message • ${st.settings.spam_count} messages a minute max • sending an image locks you for ${imageLockText()}`
+          : `Rules: ${st.settings.max_words_public} words per message • cooldowns are off in this group`);
     }
   }
 
@@ -1012,6 +1033,21 @@
     renderHead(); renderRooms(); renderRequestsBar(); renderJoinPrompt();
   }
 
+  async function toggleCooldowns() {
+    const r = room();
+    if (!r || r.kind !== 'group') return;
+    const on = !cooldownsIn(r);
+    const btn = $('btn-cooldown-toggle');
+    btn.disabled = true;
+    try {
+      await backend.setGroupCooldowns(r.id, on);
+      r.cooldowns = on;
+      note('');
+    } catch (e) { note(PZ.friendlyError(e), 'error'); }
+    btn.disabled = false;
+    renderHead(); renderComposer();
+  }
+
   // ---------------------------------------------------------------- side panels
   const PHONE = window.matchMedia('(max-width: 960px)');
   const isPhone = () => PHONE.matches;
@@ -1364,9 +1400,12 @@
         if ($('dlg-person').open) renderPersonCard();
       },
       room: (r) => {
-        st.rooms.set(r.id, Object.assign(st.rooms.get(r.id) || {}, r));
+        const before = st.rooms.get(r.id);
+        const coolChanged = !!before && cooldownsIn(before) !== cooldownsIn(Object.assign({}, before, r));
+        st.rooms.set(r.id, Object.assign(before || {}, r));
+        if (coolChanged && r.id === st.current) note('');
         renderRooms(); renderPeople();
-        if (r.id === st.current) { renderHead(); renderJoinPrompt(); renderRequestsBar(); }
+        if (r.id === st.current) { renderHead(); renderJoinPrompt(); renderRequestsBar(); renderComposer(); }
       },
       membership: (op, m) => {
         if (op === 'add') addMember(m.room_id, m.user_id);
@@ -1456,6 +1495,7 @@
     $('btn-join-here').addEventListener('click', (e) => joinPromptAction(e.currentTarget.dataset.action));
     $('btn-join-alt').addEventListener('click', (e) => joinPromptAction(e.currentTarget.dataset.action));
     $('btn-lock-toggle').addEventListener('click', toggleLock);
+    $('btn-cooldown-toggle').addEventListener('click', toggleCooldowns);
     $('pc-lock-btn').addEventListener('click', inviteToLockedGroup);
     // Side panels: collapse to rails on desktop, bottom sheets on phones.
     $('btn-collapse-rooms').addEventListener('click', () => setPanel('rooms', false));
