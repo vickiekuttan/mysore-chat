@@ -149,6 +149,8 @@ assets/favicon.png         the browser-tab icon
 
 Issues and pull requests are welcome. If you change a rule, change it in `supabase/schema.sql` first (that's where it is enforced), mirror it in `js/rules.js` and `js/backend-demo.js`, and add a check to `supabase/tests/rules.test.mjs`.
 
+When you change anything in `css/` or `js/`, bump the `?v=` number on the links at the bottom and top of `index.html`. Browsers keep old copies of those files for a few minutes, and a new number makes everyone load the new ones together with the new page.
+
 ## License
 
 [MIT](LICENSE)

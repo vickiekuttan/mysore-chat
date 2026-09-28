@@ -229,13 +229,15 @@
     lockBtn.title = r.locked ? 'Unlock: let anyone join this group' : 'Lock: only people an admin lets in can join';
     const coolBtn = $('btn-cooldown-toggle');
     const coolOn = cooldownsIn(r);
-    coolBtn.hidden = !(r.kind === 'group' && amAdmin());
-    coolBtn.classList.toggle('is-off', !coolOn);
-    coolBtn.querySelector('.cool-label').textContent = coolOn ? 'Cooldowns off' : 'Cooldowns on';
-    coolBtn.setAttribute('aria-label', coolOn ? 'Switch cooldowns off in this group' : 'Switch cooldowns back on in this group');
-    coolBtn.title = coolOn
-      ? 'Switch off the image cooldown and flood control in this group'
-      : 'Cooldowns are off here. Switch the image cooldown and flood control back on';
+    if (coolBtn) {  // missing only if the browser is still holding an older page
+      coolBtn.hidden = !(r.kind === 'group' && amAdmin());
+      coolBtn.classList.toggle('is-off', !coolOn);
+      coolBtn.querySelector('.cool-label').textContent = coolOn ? 'Cooldowns off' : 'Cooldowns on';
+      coolBtn.setAttribute('aria-label', coolOn ? 'Switch cooldowns off in this group' : 'Switch cooldowns back on in this group');
+      coolBtn.title = coolOn
+        ? 'Switch off the image cooldown and flood control in this group'
+        : 'Cooldowns are off here. Switch the image cooldown and flood control back on';
+    }
     const online = onlineIds();
     const stack = $('avatar-stack');
     stack.textContent = '';
@@ -1038,6 +1040,7 @@
     if (!r || r.kind !== 'group') return;
     const on = !cooldownsIn(r);
     const btn = $('btn-cooldown-toggle');
+    if (!btn) return;
     btn.disabled = true;
     try {
       await backend.setGroupCooldowns(r.id, on);
@@ -1495,7 +1498,7 @@
     $('btn-join-here').addEventListener('click', (e) => joinPromptAction(e.currentTarget.dataset.action));
     $('btn-join-alt').addEventListener('click', (e) => joinPromptAction(e.currentTarget.dataset.action));
     $('btn-lock-toggle').addEventListener('click', toggleLock);
-    $('btn-cooldown-toggle').addEventListener('click', toggleCooldowns);
+    if ($('btn-cooldown-toggle')) $('btn-cooldown-toggle').addEventListener('click', toggleCooldowns);
     $('pc-lock-btn').addEventListener('click', inviteToLockedGroup);
     // Side panels: collapse to rails on desktop, bottom sheets on phones.
     $('btn-collapse-rooms').addEventListener('click', () => setPanel('rooms', false));
