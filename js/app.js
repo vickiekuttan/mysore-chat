@@ -238,7 +238,8 @@
         ? 'Switch off the image cooldown and flood control in this group'
         : 'Cooldowns are off here. Switch the image cooldown and flood control back on';
     }
-    const online = onlineIds();
+    const here = groupMembersHere();
+    const online = onlineIds().filter((id) => !here || here.has(id));
     const stack = $('avatar-stack');
     stack.textContent = '';
     online.slice(0, 3).forEach((id) => stack.append(avatar(id, 'avatar-sm')));
@@ -517,10 +518,19 @@
   }
 
   // ---------------------------------------------------------------- people
+  // Inside a group, "people here" means the group's members. In Global chat
+  // and friend chats it means everyone in Pazhampori chat.
+  function groupMembersHere() {
+    const r = room();
+    return r && r.kind === 'group' ? (st.members.get(r.id) || new Set()) : null;
+  }
+
   function renderPeople() {
     const list = $('people-list');
     list.textContent = '';
-    const ids = [...st.profiles.keys()];
+    const everyone = [...st.profiles.keys()];
+    const here = groupMembersHere();
+    const ids = st.peopleTab === 'all' && here ? everyone.filter((id) => here.has(id)) : everyone;
     const incoming = [...st.requests.values()].filter((r) => r.status === 'pending' && r.to_user === st.meId && st.profiles.has(r.from_user));
     const rank = { typing: 0, online: 0, away: 1, offline: 2 };
     const banned = (id) => !!st.profiles.get(id).banned_at;
@@ -536,6 +546,10 @@
     const pb = $('people-badge');
     pb.hidden = !badgeCount; pb.textContent = String(badgeCount);
 
+    if (st.peopleTab === 'all' && here) {
+      const r = room();
+      list.append(el('div', 'people-scope', `#${r.name}: ${ids.length} member${ids.length === 1 ? '' : 's'}`));
+    }
     ops.forEach((id) => list.append(personRow(id)));
     if (st.peopleTab === 'all') {
       ids.filter((id) => !isOp(id)).sort(byPresence).forEach((id) => list.append(personRow(id)));
@@ -779,12 +793,16 @@
       hint.textContent = `Ban ${p.username}? They lose access right away. Everyone will see it in Global chat.`;
       aa.append(cardButton('Cancel', 'btn-dark', () => { st.cardConfirm = null; renderPersonCard(); }),
         cardButton('Yes, ban', 'btn-danger', () => cardAction(() => banUser(id, true))));
+    } else if (st.cardConfirm === 'promote') {
+      hint.textContent = `Make ${p.username} an admin of all of Pazhampori chat? They'll be able to ban people, promote others and lock any group. Everyone will see it in Global chat.`;
+      aa.append(cardButton('Cancel', 'btn-dark', () => { st.cardConfirm = null; renderPersonCard(); }),
+        cardButton('Yes, make admin', '', () => cardAction(() => setAdmin(id, true))));
     } else if (p.banned_at) {
       aa.append(cardButton('Unban', '', () => cardAction(() => banUser(id, false))));
     } else {
       aa.append(p.is_admin
         ? cardButton('Make regular', 'btn-dark', () => cardAction(() => setAdmin(id, false)))
-        : cardButton('Make admin', '', () => cardAction(() => setAdmin(id, true))));
+        : cardButton('Make chat admin', '', () => { st.cardConfirm = 'promote'; renderPersonCard(); }));
       const ban = cardButton('Ban', 'btn-danger', () => { st.cardConfirm = 'ban'; renderPersonCard(); });
       if (p.is_admin) { ban.disabled = true; hint.textContent = 'Make them a regular first if you need to ban them.'; }
       aa.append(ban);
@@ -1413,6 +1431,7 @@
       membership: (op, m) => {
         if (op === 'add') addMember(m.room_id, m.user_id);
         else if (st.members.has(m.room_id)) st.members.get(m.room_id).delete(m.user_id);
+        if (m.room_id === st.current) { renderPeople(); renderHead(); }
         if (m.user_id === st.meId && m.room_id === st.current && op === 'add' && $('composer').hidden) {
           st.roomReqs.delete(reqKey(m.room_id, st.meId));
           st.msgs.delete(m.room_id);

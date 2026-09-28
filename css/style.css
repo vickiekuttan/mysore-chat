@@ -414,6 +414,7 @@ button.name:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 .req-count { font: 700 30px/1 var(--pixel); color: #ffe600; }
 .people-empty { padding: 14px; color: var(--text-dim); font-size: 13px; }
+.people-scope { padding: 8px 14px; font: 600 12px/1.3 var(--mono); color: var(--text-dim); border-bottom: 1px solid #0a0908; }
 
 /* ------------------------------------------------------------- status bar */
 .statusbar {
