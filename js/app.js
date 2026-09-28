@@ -371,6 +371,13 @@
   }
 
   // ---------------------------------------------------------------- composer
+  // "2 minutes", "1 minute" or "90 seconds", from the live setting.
+  function imageLockText() {
+    const s = Number(st.settings.image_lock_seconds) || 0;
+    if (s % 60 === 0) return s === 60 ? '1 minute' : `${s / 60} minutes`;
+    return `${s} seconds`;
+  }
+
   function lockState() {
     const p = me();
     if (!p) return null;
@@ -389,6 +396,7 @@
     wc.textContent = `${words}/${lim.words}`;
     wc.classList.toggle('is-over', words > lim.words || input.value.trim().length > lim.chars);
     $('img-btn').hidden = lim.dm;
+    $('img-btn').title = `Send an image (locks you for ${imageLockText()})`;
     const lock = lockState();
     const locked = !!lock;
     input.disabled = locked;
@@ -406,7 +414,7 @@
     if (!lock && !n.classList.contains('is-error') && !n.classList.contains('is-ok')) {
       note(lim.dm
         ? 'Friend chat: longer messages, no images.'
-        : `Rules: ${st.settings.max_words_public} words per message • ${st.settings.spam_count} messages a minute max • sending an image locks you for ${Math.round(st.settings.image_lock_seconds / 60)} min`);
+        : `Rules: ${st.settings.max_words_public} words per message • ${st.settings.spam_count} messages a minute max • sending an image locks you for ${imageLockText()}`);
     }
   }
 
@@ -1500,8 +1508,7 @@
       if (prev.dataset.url) URL.revokeObjectURL(prev.dataset.url);
       prev.dataset.url = URL.createObjectURL(f);
       prev.src = prev.dataset.url;
-      const mins = Math.round(st.settings.image_lock_seconds / 60);
-      $('img-warning').textContent = `After sending an image you can't send anything for ${mins} minutes.` +
+      $('img-warning').textContent = `After sending an image you can't send anything for ${imageLockText()}.` +
         (words ? ` Your typed text (${words} word${words === 1 ? '' : 's'}) goes with it as a caption.` : '');
       $('dlg-image').returnValue = '';
       $('dlg-image').showModal();

@@ -12,7 +12,7 @@ These are enforced by the database itself (`supabase/schema.sql`), so nobody can
 | --- | --- |
 | Words per message in Global chat and groups | 8 (and 160 characters) |
 | Flood control | 10 messages within 60 seconds means a 5-minute wait |
-| Images | Allowed in Global chat and groups. After sending one, you can't send anything for 10 minutes |
+| Images | Allowed in Global chat and groups. After sending one, you can't send anything for 2 minutes |
 | The big wipe | When Global chat and all groups together reach 1,000,000 words, every message in them is erased and everyone starts on a blank page. Groups themselves stay. Friend chats are not counted or erased |
 | Friends | Send a request, the other person accepts, then you get a private chat. Up to 200 words per message, no images |
 | Joining | Invite links only. Any member can make one: it works for 7 days, for any number of people, until its creator or an admin switches it off. Up to 5 live links per member |

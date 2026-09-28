@@ -23,7 +23,7 @@
     spam_count: 10,
     spam_window_seconds: 60,
     spam_wait_seconds: 300,
-    image_lock_seconds: 600,
+    image_lock_seconds: 120,
     wipe_at_words: 1000000,
     total_words: 0,
     invite_days: 7,

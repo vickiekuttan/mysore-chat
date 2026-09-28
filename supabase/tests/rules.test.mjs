@@ -139,9 +139,9 @@ await as(B, `insert into storage.objects (bucket_id, name) values ('chat-images'
 await expectErr('image path of another user rejected', A, 'select public.send_message($1,$2,$3)', [G, '', B + '/cat.png'], 'BAD_IMAGE');
 await expectErr('image that was never uploaded rejected', B, 'select public.send_message($1,$2,$3)', [G, '', B + '/ghost.png'], 'BAD_IMAGE');
 ok('image sends', (await send(B, G, 'my cat', B + '/cat.png')).rows[0].r.id > 0);
-await expectErr('text blocked for 10 min after image', B, 'select public.send_message($1,$2)', [G, 'hello?'], 'IMAGE_LOCKED');
+await expectErr('text blocked for 2 min after image', B, 'select public.send_message($1,$2)', [G, 'hello?'], 'IMAGE_LOCKED');
 const lockMins = (await su(`select round(extract(epoch from image_locked_until - now())/60) m from profiles where id=$1`, [B])).rows[0].m;
-ok('lock is 10 minutes', Number(lockMins) === 10, lockMins);
+ok('lock is 2 minutes', Number(lockMins) === 2, lockMins);
 await expectErr('upload blocked while locked', B, `insert into storage.objects (bucket_id, name) values ('chat-images', $1)`, [B + '/dog.png']);
 
 console.log('# friends');
