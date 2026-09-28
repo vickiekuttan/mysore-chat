@@ -26,6 +26,7 @@ Every number above lives in the `settings` table. Change it there (Supabase > Ta
 - **Click any username** (in Global chat, a group, or the people list) to open their member card. Inside a group, the people list's ALL tab shows only that group's members, and the online count at the top counts only them. From there you can send a friend request, accept one, or open your private chat.
 - **Admins** show as **[OP]**. The first account ever created is the **founder**: an admin nobody can demote or ban.
 - **Admins can:** make someone an admin, make an admin a regular again (including stepping down themselves), ban and unban. These buttons appear on the member card under **Admin tools · whole chat**, and making someone an admin asks you to confirm first. Admins run all of Pazhampori chat; there are no group-only admins.
+- **Invite to group:** on anyone's member card, admins can invite them to any group, open or locked. They see **invited** next to the group and press **Join room**.
 - **A ban** locks the person out right away: they can't read, post, upload, invite or send friend requests. Their unused invite codes and pending friend requests are deleted. An admin can unban them at any time.
 - **Admins can't be banned directly.** Make them a regular first. The founder can never be banned.
 - **Every admin action is announced** in Global chat, IRC style: `*** ADMIN_Jen sets mode +o cyberSuze (now an admin)`.
@@ -121,7 +122,7 @@ Checked against [supabase.com/pricing](https://supabase.com/pricing) in Septembe
 
 ## Check the rules yourself
 
-The database rules come with 155 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
+The database rules come with 164 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
 
 ```bash
 npm install

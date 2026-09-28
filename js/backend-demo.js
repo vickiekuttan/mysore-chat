@@ -266,8 +266,9 @@
       },
       async dismissRoomRequest(id) { dropRequest(id, ME); },
       async inviteToGroup(roomId, userId) {
+        if (!me().is_admin) fail('NOT_ADMIN');
         const r = rooms.find((x) => x.id === roomId);
-        if (!r || !r.locked) fail('NOT_LOCKED');
+        if (!r || r.kind !== 'group') fail('ROOM_NOT_FOUND');
         const t = profiles.find((p) => p.id === userId);
         if (!t) fail('USER_NOT_FOUND');
         if (t.banned_at) fail('USER_BANNED');
@@ -293,7 +294,7 @@
         r.locked = locked;
         emit('room', Object.assign({}, r));
         emit('message', add(roomId, ME, locked ? 'LOCKED' : 'UNLOCKED', 'system'));
-        if (!locked) roomRequests.filter((q) => q.room_id === roomId).forEach((q) => dropRequest(roomId, q.user_id));
+        if (!locked) roomRequests.filter((q) => q.room_id === roomId && q.kind === 'request').forEach((q) => dropRequest(roomId, q.user_id));
       },
       async setGroupCooldowns(roomId, on) {
         if (!me().is_admin) fail('NOT_ADMIN');

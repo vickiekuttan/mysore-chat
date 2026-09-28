@@ -280,6 +280,23 @@ await as(A, 'select public.join_room($1)', [L2]);
 ok('admins can walk into locked groups', (await su('select count(*)::int n from room_members where room_id=$1 and user_id=$2', [L2, A])).rows[0].n === 1);
 await expectErr('helper functions are private', B, 'select public.add_to_room($1,$2)', [L, B], 'permission denied');
 
+console.log('# inviting into open groups');
+const OG = (await as(C, `select public.create_group('open_house') g`)).rows[0].g;
+await expectErr('regulars cannot invite', C, 'select public.invite_to_group($1,$2)', [OG, B], 'NOT_ADMIN');
+ok('admin invites someone to an open group', (await as(A, 'select public.invite_to_group($1,$2) r', [OG, B])).rows[0].r === 'INVITED');
+ok('they see the invitation', (await as(B, 'select kind from room_requests where room_id=$1', [OG])).rows[0]?.kind === 'invite');
+ok('inviting again is fine', (await as(A, 'select public.invite_to_group($1,$2) r', [OG, B])).rows[0].r === 'INVITED');
+await as(B, 'select public.join_room($1)', [OG]);
+ok('they join', (await su('select count(*)::int n from room_members where room_id=$1 and user_id=$2', [OG, B])).rows[0].n === 1);
+ok('invitation cleared once in', (await su('select count(*)::int n from room_requests where room_id=$1 and user_id=$2', [OG, B])).rows[0].n === 0);
+ok('inviting a member says so', (await as(A, 'select public.invite_to_group($1,$2) r', [OG, B])).rows[0].r === 'ALREADY_IN');
+await as(A, 'select public.set_group_locked($1,true)', [OG]);
+await as(A, 'select public.invite_to_group($1,$2)', [OG, D]);
+await as(E, 'select public.request_to_join($1)', [OG]);
+await as(A, 'select public.set_group_locked($1,false)', [OG]);
+ok('unlocking keeps invitations', (await su(`select count(*)::int n from room_requests where room_id=$1 and kind='invite'`, [OG])).rows[0].n === 1);
+ok('but clears requests', (await su(`select count(*)::int n from room_requests where room_id=$1 and kind='request'`, [OG])).rows[0].n === 0);
+
 console.log('# cooldowns per group');
 await su(`update profiles set muted_until = null, image_locked_until = null`);
 const upload = (uid, name) => as(uid, `insert into storage.objects (bucket_id, name) values ('chat-images', $1)`, [name]);

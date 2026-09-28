@@ -494,8 +494,9 @@ begin
   delete from public.room_requests where room_id = p_room and user_id = auth.uid();
 end $$;
 
--- Admins: invite someone into a locked group. If they had already asked to
--- join, this lets them straight in. Returns INVITED, ADDED or ALREADY_IN.
+-- Admins: invite someone into a group (open or locked). They see the
+-- invitation and press Join. If they had already asked to join a locked
+-- group, this lets them straight in. Returns INVITED, ADDED or ALREADY_IN.
 create function public.invite_to_group(p_room uuid, p_user uuid) returns text
 language plpgsql security definer set search_path = public as $$
 declare
@@ -505,7 +506,6 @@ begin
   if not public.am_admin() then raise exception 'NOT_ADMIN'; end if;
   select * into v_room from public.rooms where id = p_room and kind = 'group';
   if not found then raise exception 'ROOM_NOT_FOUND'; end if;
-  if not v_room.locked then raise exception 'NOT_LOCKED'; end if;
   if not exists (select 1 from public.profiles where id = p_user) then raise exception 'USER_NOT_FOUND'; end if;
   if exists (select 1 from public.profiles where id = p_user and banned_at is not null) then raise exception 'USER_BANNED'; end if;
   if exists (select 1 from public.room_members where room_id = p_room and user_id = p_user) then return 'ALREADY_IN'; end if;
@@ -545,8 +545,8 @@ begin
     insert into public.messages (room_id, user_id, kind, body)
     values (p_room, auth.uid(), 'system', case when p_locked then 'LOCKED' else 'UNLOCKED' end);
     if not p_locked then
-      -- Open groups need no invitations or requests.
-      delete from public.room_requests where room_id = p_room;
+      -- Nobody needs to ask to join an open group. Invitations stay.
+      delete from public.room_requests where room_id = p_room and kind = 'request';
     end if;
   end if;
 end $$;

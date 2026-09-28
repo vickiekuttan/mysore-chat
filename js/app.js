@@ -808,10 +808,10 @@
       aa.append(ban);
     }
 
-    // Invite them into a locked group they aren't in yet.
+    // Invite them into a group they aren't in yet (open or locked).
     const li = $('pc-lock-invite');
     const groups = isMe || p.banned_at ? [] : [...st.rooms.values()]
-      .filter((r) => r.kind === 'group' && r.locked && !(st.members.get(r.id) || new Set()).has(id))
+      .filter((r) => r.kind === 'group' && !(st.members.get(r.id) || new Set()).has(id))
       .sort((a, b) => a.name.localeCompare(b.name));
     li.hidden = !groups.length;
     const sel = $('pc-lock-select');
@@ -819,7 +819,8 @@
     sel.textContent = '';
     groups.forEach((r) => {
       const q = st.roomReqs.get(reqKey(r.id, id));
-      const o = el('option', null, '#' + r.name + (q ? (q.kind === 'invite' ? ' (invited)' : ' (asked to join)') : ''));
+      const o = el('option', null, '#' + r.name + (r.locked ? ' (locked)' : '') +
+        (q ? (q.kind === 'invite' ? ' (invited)' : ' (asked to join)') : ''));
       o.value = r.id;
       sel.append(o);
     });
@@ -965,7 +966,11 @@
     btn.disabled = false;
     btn.className = 'btn';
     alt.hidden = true;
-    if (!r.locked) {
+    if (!r.locked && q && q.kind === 'invite') {
+      text.textContent = `An admin invited you to #${r.name}.`;
+      btn.textContent = 'Join room'; btn.dataset.action = 'join';
+      alt.hidden = false; alt.textContent = 'Decline'; alt.dataset.action = 'dismiss';
+    } else if (!r.locked) {
       text.textContent = `You're not in #${r.name} yet. Join to read and post.`;
       btn.textContent = 'Join room'; btn.dataset.action = 'join';
     } else if (amAdmin()) {
@@ -1047,7 +1052,7 @@
     try {
       await backend.setGroupLocked(r.id, !r.locked);
       r.locked = !r.locked;
-      if (!r.locked) for (const k of [...st.roomReqs.keys()]) if (k.startsWith(r.id + '|')) st.roomReqs.delete(k);
+      if (!r.locked) for (const [k, q] of [...st.roomReqs]) if (k.startsWith(r.id + '|') && q.kind === 'request') st.roomReqs.delete(k);
     } catch (e) { note(PZ.friendlyError(e), 'error'); }
     btn.disabled = false;
     renderHead(); renderRooms(); renderRequestsBar(); renderJoinPrompt();
