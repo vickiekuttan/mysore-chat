@@ -284,6 +284,32 @@ button.name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .body { font-size: 16px; padding-top: 2px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .chat-img { display: block; max-width: min(100%, 360px); max-height: 280px; border: 3px solid; border-color: #6d6862 #111 #111 #6d6862; image-rendering: auto; background: #000; }
 .caption { margin-top: 6px; }
+
+/* Reactions: counts under a message, and two buttons that show on hover
+   (or when you tap a message on a phone). */
+.msg { position: relative; }
+.reacts { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.reacts:empty { display: none; }
+.react-ico { display: block; image-rendering: auto; }
+.react-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 9px 2px 2px; cursor: pointer;
+  border: 2px solid; border-color: #6d6862 #111 #111 #6d6862;
+  background: #15130f; color: var(--text); font: 600 13px/1 var(--mono);
+}
+.react-chip:hover { background: #221f1b; }
+.react-chip.is-mine { border-color: var(--yellow); background: #2a2410; color: var(--yellow); }
+.react-pick {
+  position: absolute; top: 4px; right: 10px; z-index: 2;
+  display: none; gap: 4px; padding: 3px;
+  background: var(--bg-2); border: 2px solid; border-color: #6d6862 #111 #111 #6d6862;
+  box-shadow: 0 2px 0 rgba(0,0,0,.4);
+}
+@media (hover: hover) { .msg:hover .react-pick, .msg:focus-within .react-pick { display: flex; } }
+.msg.is-picking .react-pick { display: flex; }
+.react-opt { padding: 1px; border: 2px solid transparent; background: none; cursor: pointer; }
+.react-opt:hover, .react-opt:focus-visible { border-color: #6d6862; }
+.react-opt.is-mine { border-color: var(--yellow); }
 .img-missing { color: var(--text-dim); font-style: italic; }
 .sys {
   margin: 4px 0;
@@ -535,6 +561,7 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
   .title-caret { display: inline; }
 
   .msg { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .reacts { grid-column: 1; }
   .name { font-size: 16px; }
   .body { font-size: 15px; padding-top: 4px; }
 }

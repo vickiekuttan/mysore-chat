@@ -15,6 +15,7 @@ These are enforced by the database itself (`supabase/schema.sql`), so nobody can
 | Images | Allowed in Global chat and groups. After sending one, you can't send anything for 30 seconds |
 | Where cooldowns apply | The image cooldown and flood control always apply in Global chat, and in groups unless an admin switches them off for that group. Friend chats never have them. A cooldown from Global doesn't stop you posting in a group that has them off |
 | The big wipe | When Global chat and all groups together reach 1,000,000 words, every message in them is erased and everyone starts on a blank page. Groups themselves stay. Friend chats are not counted or erased |
+| Reactions | Any message (not notices) can get a **Perfect pazhampori** or a **Stinky kayappam**: one per person, tap again to take it back or pick the other to switch. Hover a message (tap it on a phone) to react; hover the counts to see who. Works in friend chats too |
 | Friends | Send a request, the other person accepts, then you get a private chat. Up to 200 words per message, no images |
 | Joining | Invite links only. Any member can make one: it works for 7 days, for any number of people, until its creator or an admin switches it off. Up to 5 live links per member |
 | Signing in | Google only. New people get in only by opening an invite link and signing in with Google |
@@ -114,6 +115,7 @@ Checked against [supabase.com/pricing](https://supabase.com/pricing) in Septembe
 ## Known limitations
 
 - **Images are not deleted by the big wipe.** Files in Supabase Storage can't be removed from inside the database, so the wipe lists them in the `orphaned_images` table instead. Delete them from **Storage** > `chat-images` now and then, or storage will eventually fill up. Automating this (with a Supabase Edge Function) is a good first contribution.
+- **Taking back a reaction is announced to everyone connected**, as a message number and account ID only (Supabase sends removals without checking who can read them). Adding one only reaches people who can read that room.
 - **Who is online is not private.** "Online" and "typing" signals use a Supabase Realtime channel that anyone holding the public key could listen to. They carry only random account IDs and room IDs, never names or messages.
 - **Bans are per account, not per person.** A banned person could come back with a different Google account if someone sends them a fresh invite link.
 - **No message deleting yet.** Admins can ban people but can't remove individual messages or groups.
@@ -123,7 +125,7 @@ Checked against [supabase.com/pricing](https://supabase.com/pricing) in Septembe
 
 ## Check the rules yourself
 
-The database rules come with 164 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
+The database rules come with 181 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
 
 ```bash
 npm install

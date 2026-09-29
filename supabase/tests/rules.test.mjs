@@ -352,5 +352,39 @@ await upload(B, `${B}/${CG}/four.png`);
 await send(B, CG, '', `${B}/${CG}/four.png`);
 ok('images lock again once cooldowns are back', (await lockOf(B)).l === true);
 
+console.log('# reactions');
+await su(`update settings set wipe_at_words = 1000000, total_words = 0`);
+await su(`update profiles set muted_until = null, image_locked_until = null, banned_at = null`);
+const msgG = (await send(B, G, 'rate my fritter')).rows[0].r.id;
+const react = (uid, msg, kind) => as(uid, 'select public.set_reaction($1,$2) r', [msg, kind]);
+const reactionsOn = async (msg) => (await su('select user_id, kind from message_reactions where message_id=$1 order by user_id', [msg])).rows;
+ok('react with Perfect pazhampori', (await react(A, msgG, 'perfect')).rows[0].r === 'perfect');
+ok('others see it', (await as(E, 'select kind from message_reactions where message_id=$1', [msgG])).rows[0]?.kind === 'perfect');
+ok('switching replaces it', (await react(A, msgG, 'stinky')).rows[0].r === 'stinky'
+  && (await reactionsOn(msgG)).length === 1 && (await reactionsOn(msgG))[0].kind === 'stinky');
+await react(E, msgG, 'perfect');
+ok('one each for several people', (await reactionsOn(msgG)).length === 2);
+ok('you can react to your own message', (await react(B, msgG, 'perfect')).rows[0].r === 'perfect');
+await react(A, msgG, null);
+ok('taking it back removes it', (await su('select count(*)::int n from message_reactions where message_id=$1 and user_id=$2', [msgG, A])).rows[0].n === 0);
+await expectErr('only the two reactions exist', A, 'select public.set_reaction($1,$2)', [msgG, 'meh'], 'BAD_REACTION');
+await expectErr('no reacting to notices', A, 'select public.set_reaction($1,$2)',
+  [(await su(`select id from messages where kind='system' and room_id=$1 order by id desc limit 1`, [G])).rows[0].id, 'perfect'], 'CANNOT_REACT');
+await expectErr('no reacting to a missing message', A, 'select public.set_reaction($1,$2)', [99999999, 'perfect'], 'MESSAGE_NOT_FOUND');
+const msgCG = (await send(B, CG, 'group fritter')).rows[0].r.id;
+await expectErr('outsiders cannot react in a group', D, 'select public.set_reaction($1,$2)', [msgCG, 'perfect'], 'NOT_IN_ROOM');
+await react(C, msgCG, 'perfect');
+ok('outsiders cannot see group reactions', (await as(D, 'select * from message_reactions where message_id=$1', [msgCG])).rows.length === 0);
+const msgDM = (await send(A, dm, 'just between us')).rows[0].r.id;
+ok('friends react in their chat', (await react(B, msgDM, 'stinky')).rows[0].r === 'stinky');
+ok('nobody else sees it', (await as(E, 'select * from message_reactions where message_id=$1', [msgDM])).rows.length === 0);
+await expectErr('reactions only through set_reaction', A, `insert into message_reactions (message_id, user_id, room_id, kind) values ($1, $2, $3, 'perfect')`, [msgG, A, G]);
+await expectErr('signed-out visitors cannot react', null, 'select public.set_reaction($1,$2)', [msgG, 'perfect'], 'permission denied');
+await su(`update profiles set banned_at = now() where id=$1`, [E]);
+await expectErr('banned people cannot react', E, 'select public.set_reaction($1,$2)', [msgG, 'stinky'], 'NOT_A_MEMBER');
+await su(`update profiles set banned_at = null where id=$1`, [E]);
+await su('delete from messages where id=$1', [msgG]);
+ok('reactions go with their message', (await su('select count(*)::int n from message_reactions where message_id=$1', [msgG])).rows[0].n === 0);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

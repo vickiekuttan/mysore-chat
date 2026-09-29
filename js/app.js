@@ -34,6 +34,7 @@
     local: new Map(),            // roomId -> local-only lines ("signed on")
     unread: new Map(),
     peopleTab: 'all',
+    reactions: new Map(),   // message id -> Map(user id -> 'perfect' | 'stinky')
     search: '',
     lag: null,
     conn: 'trying',
@@ -211,6 +212,10 @@
         const had = st.msgs.get(roomId) || [];
         const ids = new Set(rows.map((m) => m.id));
         st.msgs.set(roomId, rows.concat(had.filter((m) => !ids.has(m.id))));
+        try {
+          const list = await backend.loadReactions(rows.filter((m) => m.kind !== 'system').map((m) => m.id));
+          list.forEach((x) => setLocalReaction(x.message_id, x.user_id, x.kind));
+        } catch (_) { /* messages still show without reactions */ }
       } catch (e) {
         if (st.current === roomId) { $('messages').textContent = ''; $('messages').append(el('p', 'empty-note', PZ.friendlyError(e))); }
         return;
@@ -315,7 +320,97 @@
       body.textContent = m.body;
     }
     row.append(who, body);
+    if (typeof m.id === 'number') {
+      row.dataset.mid = String(m.id);
+      row.append(el('div', 'reacts'), reactionPicker(m.id));
+      fillReacts(row, m.id);
+      // Phones have no hover: tap a message to show the reaction buttons.
+      row.addEventListener('click', (e) => {
+        if (HOVER.matches || e.target.closest('button, a, img')) return;
+        const on = !row.classList.contains('is-picking');
+        document.querySelectorAll('.msg.is-picking').forEach((x) => x.classList.remove('is-picking'));
+        row.classList.toggle('is-picking', on);
+      });
+    }
     return row;
+  }
+
+  // ---------------------------------------------------------------- reactions
+  const REACTIONS = [
+    { kind: 'perfect', label: 'Perfect pazhampori', src: 'assets/react-perfect.png' },
+    { kind: 'stinky', label: 'Stinky kayappam', src: 'assets/react-stinky.png' }
+  ];
+  const HOVER = window.matchMedia('(hover: hover)');
+
+  function setLocalReaction(messageId, userId, kind) {
+    let m = st.reactions.get(messageId);
+    if (!m) { m = new Map(); st.reactions.set(messageId, m); }
+    if (kind) m.set(userId, kind); else m.delete(userId);
+    if (!m.size) st.reactions.delete(messageId);
+  }
+  const myReaction = (messageId) => (st.reactions.get(messageId) || new Map()).get(st.meId) || null;
+
+  function reactIcon(r, size) {
+    const img = el('img', 'react-ico');
+    img.src = r.src; img.alt = ''; img.width = size; img.height = size;
+    return img;
+  }
+
+  function reactionPicker(messageId) {
+    const pick = el('div', 'react-pick');
+    REACTIONS.forEach((r) => {
+      const b = el('button', 'react-opt');
+      b.type = 'button';
+      b.dataset.kind = r.kind;
+      b.title = r.label;
+      b.setAttribute('aria-label', `React: ${r.label}`);
+      b.append(reactIcon(r, 26));
+      b.addEventListener('click', (e) => { e.stopPropagation(); toggleReaction(messageId, r.kind); });
+      pick.append(b);
+    });
+    return pick;
+  }
+
+  // Counts under a message, and which button is yours.
+  function fillReacts(row, messageId) {
+    const box = row.querySelector('.reacts');
+    if (!box) return;
+    box.textContent = '';
+    const who = st.reactions.get(messageId) || new Map();
+    const mine = who.get(st.meId) || null;
+    REACTIONS.forEach((r) => {
+      const ids = [...who].filter(([, k]) => k === r.kind).map(([u]) => u);
+      if (!ids.length) return;
+      const chip = el('button', 'react-chip' + (mine === r.kind ? ' is-mine' : ''));
+      chip.type = 'button';
+      const names = ids.map((u) => (u === st.meId ? 'you' : nameOf(u)));
+      chip.title = `${r.label}: ${names.slice(0, 12).join(', ')}${names.length > 12 ? ` and ${names.length - 12} more` : ''}`;
+      chip.setAttribute('aria-label', `${ids.length} ${r.label}. ${mine === r.kind ? 'Tap to take yours back.' : 'Tap to add yours.'}`);
+      chip.append(reactIcon(r, 22), el('span', 'react-n', String(ids.length)));
+      chip.addEventListener('click', (e) => { e.stopPropagation(); toggleReaction(messageId, r.kind); });
+      box.append(chip);
+    });
+    row.querySelectorAll('.react-opt').forEach((b) => b.classList.toggle('is-mine', b.dataset.kind === mine));
+  }
+
+  function refreshReacts(messageId) {
+    const row = $('messages').querySelector(`.msg[data-mid="${messageId}"]`);
+    if (row) fillReacts(row, messageId);
+  }
+
+  // Same reaction again takes it back; the other one switches.
+  async function toggleReaction(messageId, kind) {
+    const before = myReaction(messageId);
+    const next = before === kind ? null : kind;
+    setLocalReaction(messageId, st.meId, next);
+    refreshReacts(messageId);
+    document.querySelectorAll('.msg.is-picking').forEach((x) => x.classList.remove('is-picking'));
+    try { await backend.setReaction(messageId, next); }
+    catch (e) {
+      setLocalReaction(messageId, st.meId, before);
+      refreshReacts(messageId);
+      note(PZ.friendlyError(e), 'error');
+    }
   }
 
   function combined(roomId) {
@@ -365,7 +460,7 @@
   function handleWipe(m) {
     for (const [id, list] of st.msgs) {
       const r = st.rooms.get(id);
-      if (r && r.kind !== 'dm') list.length = 0;
+      if (r && r.kind !== 'dm') { list.forEach((x) => st.reactions.delete(x.id)); list.length = 0; }
     }
     for (const id of [...st.unread.keys()]) { const r = st.rooms.get(id); if (r && r.kind !== 'dm') st.unread.delete(id); }
     const g = globalRoom();
@@ -1449,6 +1544,11 @@
         if ($('dlg-person').open) renderPersonCard();
       },
       settings: (sv) => { st.settings = Object.assign(st.settings, sv); renderStatus(); renderComposer(); },
+      reaction: (op, x) => {
+        if (!x || x.message_id == null || !x.user_id) return;
+        setLocalReaction(x.message_id, x.user_id, op === 'remove' ? null : x.kind);
+        refreshReacts(x.message_id);
+      },
       presence: onPresence,
       connection: (c) => { st.conn = c; renderStatus(); }
     });

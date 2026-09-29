@@ -88,6 +88,13 @@
     add('after_school', 'kid', 'JOINED', 'system', 300);
     add('after_school', 'suze', 'anyone finish the geometry worksheet?', 'text', 250);
     add('music_swap', 'moon', 'trading my mixtape for your burned CD', 'text', 900);
+    // A few reactions so the demo shows them off.
+    const reactions = [];
+    const byBody = (t) => messages.find((m) => m.body.startsWith(t));
+    [['up up down', [['suze', 'perfect'], ['pete', 'perfect'], ['beep', 'perfect']]],
+     ['brb rebooting', [['kid', 'stinky'], ['moon', 'perfect']]],
+     ['prediction: songs', [['angel', 'stinky'], ['suze', 'stinky'], ['jen', 'perfect']]]]
+      .forEach(([t, list]) => { const m = byBody(t); if (m) list.forEach(([u, kind]) => reactions.push({ message_id: m.id, user_id: u, kind })); });
     add('dm-suze', 'suze', 'hey!! did you see the new guestbook I added to my homepage? it has a hit counter and a little spinning globe gif', 'text', 3000);
 
     const bots = [
@@ -180,6 +187,23 @@
       async loadMessages(roomId) {
         if (!canRead(roomId)) return [];
         return messages.filter((m) => m.room_id === roomId).slice(-150);
+      },
+
+      async loadReactions(ids) {
+        const want = new Set(ids);
+        return reactions.filter((r) => want.has(r.message_id)).map((r) => Object.assign({}, r));
+      },
+      async setReaction(messageId, kind) {
+        const m = messages.find((x) => x.id === messageId);
+        if (!m) fail('MESSAGE_NOT_FOUND');
+        if (!canRead(m.room_id)) fail('NOT_IN_ROOM');
+        if (m.kind === 'system') fail('CANNOT_REACT');
+        if (kind && kind !== 'perfect' && kind !== 'stinky') fail('BAD_REACTION');
+        const i = reactions.findIndex((r) => r.message_id === messageId && r.user_id === ME);
+        if (i >= 0) reactions.splice(i, 1);
+        if (kind) reactions.push({ message_id: messageId, user_id: ME, kind });
+        emit('reaction', kind ? 'set' : 'remove', { message_id: messageId, user_id: ME, kind: kind || null });
+        return kind || null;
       },
 
       async sendMessage(roomId, body, file) {

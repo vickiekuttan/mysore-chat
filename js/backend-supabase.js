@@ -102,6 +102,18 @@
         return rows.reverse();
       },
 
+      // Reactions on these messages (the ones on screen).
+      async loadReactions(ids) {
+        const out = [];
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          if (!chunk.length) continue;
+          out.push(...await select(sb.from('message_reactions').select('message_id,user_id,kind').in('message_id', chunk)));
+        }
+        return out;
+      },
+      setReaction: (messageId, kind) => rpc('set_reaction', { p_message: messageId, p_kind: kind || null }),
+
       // ------------------------------------------------------------ chatting
       async sendMessage(roomId, body, file) {
         let path = null;
@@ -181,6 +193,8 @@
             h.roomRequest(p.eventType === 'DELETE' ? 'remove' : 'add', p.eventType === 'DELETE' ? p.old : p.new))
           .on('postgres_changes', { event: '*', schema: 'public', table: 'friend_requests' }, (p) => p.new && p.new.id && h.friendRequest(p.new))
           .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'settings' }, (p) => h.settings(p.new))
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions' }, (p) =>
+            h.reaction(p.eventType === 'DELETE' ? 'remove' : 'set', p.eventType === 'DELETE' ? p.old : p.new))
           .subscribe((status) => h.connection(status === 'SUBSCRIBED' ? 'up' : status === 'CLOSED' ? 'down' : 'trying'));
 
         presenceChannel = sb.channel('online', { config: { presence: { key: userId } } });

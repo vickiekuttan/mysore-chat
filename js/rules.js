@@ -61,7 +61,10 @@
     USER_BANNED: 'That person is banned.',
     NOT_ADMIN: 'Only admins can do that.',
     CANNOT_CHANGE_OWNER: 'The founder cannot be demoted or banned.',
-    DEMOTE_FIRST: 'Make them a regular first, then ban them.'
+    DEMOTE_FIRST: 'Make them a regular first, then ban them.',
+    MESSAGE_NOT_FOUND: 'That message is gone.',
+    CANNOT_REACT: "You can't react to that.",
+    BAD_REACTION: 'Unknown reaction.'
   };
 
   function errorCode(err) {

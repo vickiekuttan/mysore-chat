@@ -124,6 +124,19 @@ create table public.messages (
 create index messages_room_recent on public.messages (room_id, id desc);
 create index messages_user_recent on public.messages (user_id, created_at desc);
 
+-- Reactions: one per person per message, 'perfect' (Perfect pazhampori) or
+-- 'stinky' (Stinky kayappam). room_id is copied from the message so the read
+-- rule stays simple. Reactions go when their message goes (e.g. a wipe).
+create table public.message_reactions (
+  message_id bigint not null references public.messages(id) on delete cascade,
+  user_id    uuid   not null references public.profiles(id) on delete cascade,
+  room_id    uuid   not null references public.rooms(id) on delete cascade,
+  kind       text   not null check (kind in ('perfect','stinky')),
+  created_at timestamptz not null default now(),
+  primary key (message_id, user_id)
+);
+create index message_reactions_room on public.message_reactions (room_id);
+
 create table public.friend_requests (
   id           bigint generated always as identity primary key,
   from_user    uuid not null references public.profiles(id) on delete cascade,
@@ -551,6 +564,29 @@ begin
   end if;
 end $$;
 
+-- React to a message with 'perfect' or 'stinky', or null to take it back.
+-- One reaction per person per message; reacting again switches it.
+-- Works anywhere you can read, including friend chats. Returns the reaction.
+create function public.set_reaction(p_message bigint, p_kind text) returns text
+language plpgsql security definer set search_path = public as $$
+declare v_msg public.messages%rowtype;
+begin
+  if not public.is_member() then raise exception 'NOT_A_MEMBER'; end if;
+  select * into v_msg from public.messages where id = p_message;
+  if not found then raise exception 'MESSAGE_NOT_FOUND'; end if;
+  if not public.can_read_room(v_msg.room_id) then raise exception 'NOT_IN_ROOM'; end if;
+  if v_msg.kind = 'system' then raise exception 'CANNOT_REACT'; end if;
+  if p_kind is null then
+    delete from public.message_reactions where message_id = p_message and user_id = auth.uid();
+    return null;
+  end if;
+  if p_kind not in ('perfect', 'stinky') then raise exception 'BAD_REACTION'; end if;
+  insert into public.message_reactions (message_id, user_id, room_id, kind)
+  values (p_message, auth.uid(), v_msg.room_id, p_kind)
+  on conflict (message_id, user_id) do update set kind = excluded.kind, created_at = now();
+  return p_kind;
+end $$;
+
 -- Admins only: switch a group's cooldowns (image cooldown + flood control)
 -- off or back on. Global chat always keeps them.
 create function public.set_group_cooldowns(p_room uuid, p_on boolean) returns void
@@ -751,6 +787,7 @@ alter table public.messages        enable row level security;
 alter table public.friend_requests enable row level security;
 alter table public.orphaned_images enable row level security;
 alter table public.room_requests   enable row level security;
+alter table public.message_reactions enable row level security;
 
 create policy "members read settings" on public.settings
   for select to authenticated using (public.is_member());
@@ -788,6 +825,9 @@ create policy "members read memberships" on public.room_members
 create policy "read messages in my rooms" on public.messages
   for select to authenticated using (public.can_read_room(room_id));
 
+create policy "read reactions in my rooms" on public.message_reactions
+  for select to authenticated using (public.can_read_room(room_id));
+
 create policy "see my friend requests" on public.friend_requests
   for select to authenticated using (from_user = auth.uid() or to_user = auth.uid());
 
@@ -812,7 +852,8 @@ grant  execute on function public.count_words(text), public.is_member(), public.
          public.invite_to_group(uuid, uuid), public.answer_join_request(uuid, uuid, boolean),
          public.set_group_locked(uuid, boolean), public.set_group_cooldowns(uuid, boolean),
          public.send_friend_request(uuid), public.respond_friend_request(bigint, boolean),
-         public.set_admin(uuid, boolean), public.ban_user(uuid, boolean)
+         public.set_admin(uuid, boolean), public.ban_user(uuid, boolean),
+         public.set_reaction(bigint, text)
   to authenticated;
 
 
@@ -840,7 +881,7 @@ create policy "members view images" on storage.objects
 -- ---------------------------------------------------------------------------
 alter publication supabase_realtime add table
   public.messages, public.rooms, public.room_members, public.profiles,
-  public.friend_requests, public.settings, public.room_requests;
+  public.friend_requests, public.settings, public.room_requests, public.message_reactions;
 
 
 -- ---------------------------------------------------------------------------
