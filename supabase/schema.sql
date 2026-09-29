@@ -25,7 +25,7 @@ create table public.settings (
   spam_count          int    not null default 10,       -- this many messages...
   spam_window_seconds int    not null default 60,       -- ...inside this window...
   spam_wait_seconds   int    not null default 300,      -- ...means waiting this long
-  image_lock_seconds  int    not null default 120,      -- no sending at all for 2 min after an image
+  image_lock_seconds  int    not null default 30,       -- no sending at all for 30 seconds after an image
   wipe_at_words       bigint not null default 1000000,  -- Global + groups are erased at this many words
   total_words         bigint not null default 0,        -- running count since the last wipe
   wipe_count          int    not null default 0,
@@ -353,7 +353,7 @@ begin
           v_body, p_image_path, v_words)
   returning id into v_id;
 
-  -- Image rule: 2 minutes of silence after sending an image.
+  -- Image rule: 30 seconds of silence after sending an image.
   if v_cool and p_image_path is not null then
     update public.profiles
        set image_locked_until = now() + make_interval(secs => v_set.image_lock_seconds)

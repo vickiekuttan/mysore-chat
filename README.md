@@ -12,7 +12,7 @@ These are enforced by the database itself (`supabase/schema.sql`), so nobody can
 | --- | --- |
 | Words per message in Global chat and groups | 8 (and 160 characters) |
 | Flood control | 10 messages within 60 seconds means a 5-minute wait |
-| Images | Allowed in Global chat and groups. After sending one, you can't send anything for 2 minutes |
+| Images | Allowed in Global chat and groups. After sending one, you can't send anything for 30 seconds |
 | Where cooldowns apply | The image cooldown and flood control always apply in Global chat, and in groups unless an admin switches them off for that group. Friend chats never have them. A cooldown from Global doesn't stop you posting in a group that has them off |
 | The big wipe | When Global chat and all groups together reach 1,000,000 words, every message in them is erased and everyone starts on a blank page. Groups themselves stay. Friend chats are not counted or erased |
 | Friends | Send a request, the other person accepts, then you get a private chat. Up to 200 words per message, no images |
