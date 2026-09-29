@@ -121,19 +121,6 @@
         return Object.assign({ path }, res);
       },
 
-      // Delete image files a wipe let go of (Supabase only allows deleting
-      // files through Storage). Safe to run from several pages at once.
-      async cleanupWipedImages() {
-        for (let round = 0; round < 5; round++) {
-          const paths = await rpc('orphaned_image_batch');
-          if (!paths || !paths.length) return;
-          const { error } = await sb.storage.from(BUCKET).remove(paths);
-          if (error) return;
-          const cleared = await rpc('forget_deleted_images', { p_paths: paths });
-          if (!cleared) return;
-        }
-      },
-
       createGroup: (name, icon, locked) => rpc('create_group', { p_name: name, p_icon: icon, p_locked: !!locked }),
       joinRoom: (id) => rpc('join_room', { p_room: id }),
       leaveRoom: (id) => rpc('leave_room', { p_room: id }),

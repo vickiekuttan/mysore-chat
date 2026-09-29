@@ -14,7 +14,7 @@ These are enforced by the database itself (`supabase/schema.sql`), so nobody can
 | Flood control | 10 messages within 60 seconds means a 5-minute wait |
 | Images | Allowed in Global chat and groups. After sending one, you can't send anything for 30 seconds |
 | Where cooldowns apply | The image cooldown and flood control always apply in Global chat, and in groups unless an admin switches them off for that group. Friend chats never have them. A cooldown from Global doesn't stop you posting in a group that has them off |
-| The big wipe | When Global chat and all groups together reach 1,000,000 words, every message and image in them is erased and everyone starts on a blank page. The same happens if the chat gets close to Supabase's free-plan space: the database at 400 MB or images at 800 MB (80% of the limits). Groups and their members always stay. Friend chats are not counted or erased |
+| The big wipe | When Global chat and all groups together reach 1,000,000 words, every message in them is erased and everyone starts on a blank page. Groups themselves stay. Friend chats are not counted or erased |
 | Friends | Send a request, the other person accepts, then you get a private chat. Up to 200 words per message, no images |
 | Joining | Invite links only. Any member can make one: it works for 7 days, for any number of people, until its creator or an admin switches it off. Up to 5 live links per member |
 | Signing in | Google only. New people get in only by opening an invite link and signing in with Google |
@@ -105,15 +105,15 @@ Pick your screen name and join with Google. Then press **Invite** in the toolbar
 
 Checked against [supabase.com/pricing](https://supabase.com/pricing) in September 2026:
 
-- **500 MB database.** Going over makes it read-only, so the chat wipes Global chat and the groups at 400 MB. In practice the word wipe keeps it far below that; only a huge amount of friend-chat messages could fill it, and those are never wiped.
-- **1 GB of file storage.** The chat wipes at 800 MB of images. Images are shrunk before upload (longest side 1280px, usually 100-400 KB), and wiped images are deleted from Storage by members' pages in the background.
-- **5 GB of bandwidth a month** (plus 5 GB served from Supabase's cache). Every time someone views an image, it counts. The chat can't measure this; keep an eye on **Usage** in the Supabase dashboard. Over any limit, Supabase warns you, then after a grace period may restrict the project.
+- **500 MB database.** Going over makes it read-only until you delete data or upgrade. 1,000,000 words of chat is roughly 125,000 messages, which fits comfortably.
+- **1 GB of file storage.** Images are shrunk before upload (longest side 1280px, usually 100-400 KB). See the note on images below.
+- **5 GB of bandwidth a month** (plus 5 GB served from Supabase's cache). Every time someone views an image, it counts. Keep an eye on **Usage** in the Supabase dashboard. Over a storage or bandwidth limit, Supabase warns you, then after a grace period may restrict the project.
 - 200 people connected at the same time.
 - **Free projects pause after a week with no activity.** Open the Supabase dashboard and click **Restore** if that happens.
 
 ## Known limitations
 
-- **Wiped images are deleted by members' pages.** Supabase doesn't allow deleting files from inside the database, so a wipe lists them in `orphaned_images` and the next page that's open deletes them through Storage. If nobody visits for a long time, they wait there. An image that was uploaded but never sent (because sending failed) stays in Storage.
+- **Images are not deleted by the big wipe.** Files in Supabase Storage can't be removed from inside the database, so the wipe lists them in the `orphaned_images` table instead. Delete them from **Storage** > `chat-images` now and then, or storage will eventually fill up. Automating this (with a Supabase Edge Function) is a good first contribution.
 - **Who is online is not private.** "Online" and "typing" signals use a Supabase Realtime channel that anyone holding the public key could listen to. They carry only random account IDs and room IDs, never names or messages.
 - **Bans are per account, not per person.** A banned person could come back with a different Google account if someone sends them a fresh invite link.
 - **No message deleting yet.** Admins can ban people but can't remove individual messages or groups.
@@ -123,7 +123,7 @@ Checked against [supabase.com/pricing](https://supabase.com/pricing) in Septembe
 
 ## Check the rules yourself
 
-The database rules come with 183 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
+The database rules come with 164 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
 
 ```bash
 npm install

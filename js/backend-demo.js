@@ -221,15 +221,13 @@
             }
             S.total_words = 0;
             emit('message', add('global', null, 'WIPE', 'system'));
-            wiped = 'WIPE';
+            wiped = true;
           }
           emit('settings', Object.assign({}, S));
         }
         emit('profile', Object.assign({}, p));
-        return { id: m.id, wiped: !!wiped, wipe: wiped || null, path };
+        return { id: m.id, wiped, path };
       },
-
-      async cleanupWipedImages() { /* nothing is stored in demo mode */ },
 
       async createGroup(name, icon, locked) {
         const n = String(name || '').trim().toLowerCase();

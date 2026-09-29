@@ -263,7 +263,6 @@
   function systemText(m, r) {
     const who = nameOf(m.user_id);
     if (m.body === 'WIPE') return `*** ${fmtNum(st.settings.wipe_at_words)} words reached. Global chat and every group start over from a blank page. ***`;
-    if (m.body === 'WIPE_SPACE') return '*** The chat was running out of space. Global chat and every group start over from a blank page. Groups and friend chats stay. ***';
     if (m.body === 'CREATED') return `★ ${who} created #${r ? r.name : 'this room'}`;
     if (m.body === 'JOINED') return `★ ${who} has entered #${r ? r.name : 'this room'} from ${hostFor(m.user_id)}`;
     const target = nameOf(m.target_id);
@@ -283,7 +282,7 @@
   function messageRow(m, flash) {
     const r = st.rooms.get(m.room_id);
     if (m.kind === 'system' || m.kind === 'local') {
-      const mode = { PROMOTED: ' sys-mode', DEMOTED: ' sys-mode', BANNED: ' sys-ban', UNBANNED: ' sys-mode', LOCKED: ' sys-mode', UNLOCKED: ' sys-mode', COOLDOWNS_OFF: ' sys-mode', COOLDOWNS_ON: ' sys-mode', WIPE: ' sys-wipe', WIPE_SPACE: ' sys-wipe' }[m.body] || '';
+      const mode = { PROMOTED: ' sys-mode', DEMOTED: ' sys-mode', BANNED: ' sys-ban', UNBANNED: ' sys-mode', LOCKED: ' sys-mode', UNLOCKED: ' sys-mode', COOLDOWNS_OFF: ' sys-mode', COOLDOWNS_ON: ' sys-mode', WIPE: ' sys-wipe' }[m.body] || '';
       return el('div', 'sys' + (m.kind === 'local' ? '' : mode), m.kind === 'local' ? m.body : systemText(m, r));
     }
     const p = st.profiles.get(m.user_id);
@@ -347,7 +346,7 @@
 
   function addMessage(m) {
     const r = st.rooms.get(m.room_id);
-    if (m.kind === 'system' && (m.body === 'WIPE' || m.body === 'WIPE_SPACE')) return handleWipe(m);
+    if (m.kind === 'system' && m.body === 'WIPE') return handleWipe(m);
     if (st.msgs.has(m.room_id)) {
       const list = st.msgs.get(m.room_id);
       if (list.some((x) => x.id === m.id)) return;
@@ -375,19 +374,6 @@
     const r = room();
     if (r && r.kind !== 'dm') renderMessages();
     renderRooms(); renderStatus();
-    cleanupSoon();
-  }
-
-  // Delete image files that a wipe let go of. Every page does this a little
-  // while after a wipe or after signing in; staggered so they don't all pile in.
-  let cleaning = false;
-  function cleanupSoon() {
-    setTimeout(async () => {
-      if (cleaning || !entered || !backend.cleanupWipedImages) return;
-      cleaning = true;
-      try { await backend.cleanupWipedImages(); } catch (_) { /* tried again next time */ }
-      cleaning = false;
-    }, 3000 + Math.random() * 15000);
   }
 
   // ---------------------------------------------------------------- composer
@@ -460,7 +446,7 @@
       note('');
       if (res.wiped) {
         const g = globalRoom();
-        handleWipe({ id: 'wipe-' + res.id, room_id: g && g.id, user_id: null, kind: 'system', body: res.wipe || 'WIPE', created_at: new Date().toISOString() });
+        handleWipe({ id: 'wipe-' + res.id, room_id: g && g.id, user_id: null, kind: 'system', body: 'WIPE', created_at: new Date().toISOString() });
       } else {
         addMessage({ id: res.id, room_id: r.id, user_id: st.meId, kind: file ? 'image' : 'text', body: text,
           image_path: res.path || null, word_count: words, created_at: new Date().toISOString() });
@@ -1469,7 +1455,6 @@
     if (g) await openRoom(g.id);
     pushPresence();
     ping();
-    cleanupSoon();
   }
 
   function wire() {
