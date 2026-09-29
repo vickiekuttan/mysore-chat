@@ -27,6 +27,8 @@ create table public.settings (
   spam_wait_seconds   int    not null default 300,      -- ...means waiting this long
   image_lock_seconds  int    not null default 30,       -- no sending at all for 30 seconds after an image
   wipe_at_words       bigint not null default 1000000,  -- Global + groups are erased at this many words
+  wipe_at_db_bytes    bigint not null default 400000000, -- ...or when the database reaches 80% of the free plan's 500 MB
+  wipe_at_image_bytes bigint not null default 800000000, -- ...or when images reach 80% of the free plan's 1 GB
   total_words         bigint not null default 0,        -- running count since the last wipe
   wipe_count          int    not null default 0,
   last_wiped_at       timestamptz,
@@ -288,7 +290,41 @@ end $$;
 -- 5. Actions (the web page calls these; nobody writes to tables directly)
 -- ---------------------------------------------------------------------------
 
--- Send a message. Returns {"id": ..., "wiped": true/false}.
+-- Internal: bytes of chat images still in use (files a wipe already let go
+-- of don't count, even before they're deleted from Storage).
+create function public.image_bytes_in_use() returns bigint
+language sql stable security definer set search_path = public as $$
+  select coalesce(sum((o.metadata->>'size')::bigint), 0)
+    from storage.objects o
+   where o.bucket_id = 'chat-images'
+     and not exists (select 1 from public.orphaned_images x where x.path = o.name)
+$$;
+
+-- Internal: erase every message and image in Global chat and the groups.
+-- Groups, members, friend chats and accounts all stay. p_body is the notice
+-- posted in Global chat afterwards: WIPE (word limit) or WIPE_SPACE (space).
+create function public.wipe_public(p_body text) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_global uuid;
+begin
+  insert into public.orphaned_images (path)
+    select m.image_path from public.messages m join public.rooms r on r.id = m.room_id
+     where r.kind <> 'dm' and m.image_path is not null
+  on conflict do nothing;
+
+  delete from public.messages m using public.rooms r
+   where r.id = m.room_id and r.kind <> 'dm';
+
+  update public.settings
+     set total_words = 0, wipe_count = wipe_count + 1, last_wiped_at = now()
+   where id = 1;
+
+  select id into v_global from public.rooms where kind = 'global';
+  insert into public.messages (room_id, user_id, kind, body)
+  values (v_global, null, 'system', p_body);
+end $$;
+
+-- Send a message. Returns {"id": ..., "wiped": true/false, "wipe": null | "WIPE" | "WIPE_SPACE"}.
 -- Errors are short codes the page turns into friendly text:
 --   NOT_A_MEMBER, ROOM_NOT_FOUND, NOT_IN_ROOM, EMPTY, IMAGE_LOCKED, SPAM_WAIT,
 --   TOO_MANY_WORDS, TOO_LONG, NO_IMAGES_FOR_FRIENDS, BAD_IMAGE
@@ -308,7 +344,7 @@ declare
   v_total  bigint;
   v_id     bigint;
   v_wiped  boolean := false;
-  v_global uuid;
+  v_wipe   text;
   v_cool   boolean;
 begin
   -- Lock this person's row so two fast sends are checked one after the other.
@@ -382,26 +418,23 @@ begin
       returning total_words into v_total;
 
     if v_total >= v_set.wipe_at_words then
-      insert into public.orphaned_images (path)
-        select m.image_path from public.messages m join public.rooms r on r.id = m.room_id
-         where r.kind <> 'dm' and m.image_path is not null
-      on conflict do nothing;
+      v_wipe := 'WIPE';
+    -- Space: wipe before Supabase's free-plan limits are reached (going over
+    -- makes the database read-only). Deleted rows don't shrink the database
+    -- right away, so a database-size wipe waits an hour before it can repeat.
+    elsif public.image_bytes_in_use() >= v_set.wipe_at_image_bytes
+       or (pg_database_size(current_database()) >= v_set.wipe_at_db_bytes
+           and (v_set.last_wiped_at is null or v_set.last_wiped_at < now() - interval '1 hour')) then
+      v_wipe := 'WIPE_SPACE';
+    end if;
 
-      delete from public.messages m using public.rooms r
-       where r.id = m.room_id and r.kind <> 'dm';
-
-      update public.settings
-         set total_words = 0, wipe_count = wipe_count + 1, last_wiped_at = now()
-       where id = 1;
-
-      select id into v_global from public.rooms where kind = 'global';
-      insert into public.messages (room_id, user_id, kind, body)
-      values (v_global, null, 'system', 'WIPE');
+    if v_wipe is not null then
+      perform public.wipe_public(v_wipe);
       v_wiped := true;
     end if;
   end if;
 
-  return jsonb_build_object('id', v_id, 'wiped', v_wiped);
+  return jsonb_build_object('id', v_id, 'wiped', v_wiped, 'wipe', v_wipe);
 end $$;
 
 
@@ -799,8 +832,38 @@ create policy "see locked-group requests" on public.room_requests
 
 -- orphaned_images: no policies, so only the Supabase dashboard can see it.
 
--- Signed-out visitors may only check an invite link. add_to_room and
--- invite_state are internal helpers and are not granted to anyone.
+-- Images erased by a wipe stay in Storage until someone deletes them through
+-- the Storage API (Supabase doesn't allow deleting files with SQL). Any
+-- member's page does this quietly in the background: it asks for a batch,
+-- deletes those files, then tells the database which ones are gone.
+create function public.is_orphaned_image(p_name text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.orphaned_images where path = p_name)
+$$;
+
+create function public.orphaned_image_batch() returns text[]
+language sql stable security definer set search_path = public as $$
+  select case when public.is_member()
+    then coalesce((select array_agg(path) from
+           (select path from public.orphaned_images order by listed_at, path limit 100) x), '{}'::text[])
+    else '{}'::text[] end
+$$;
+
+create function public.forget_deleted_images(p_paths text[]) returns int
+language plpgsql security definer set search_path = public as $$
+declare v_n int;
+begin
+  if not public.is_member() then raise exception 'NOT_A_MEMBER'; end if;
+  delete from public.orphaned_images o
+   where o.path = any(p_paths)
+     and not exists (select 1 from storage.objects s where s.bucket_id = 'chat-images' and s.name = o.path);
+  get diagnostics v_n = row_count;
+  return v_n;
+end $$;
+
+-- Signed-out visitors may only check an invite link. add_to_room,
+-- invite_state, wipe_public and image_bytes_in_use are internal helpers and
+-- are not granted to anyone.
 revoke execute on all functions in schema public from anon, authenticated, public;
 grant  execute on function public.check_signup(text, text) to anon, authenticated;
 grant  execute on function public.count_words(text), public.is_member(), public.am_admin(),
@@ -812,7 +875,8 @@ grant  execute on function public.count_words(text), public.is_member(), public.
          public.invite_to_group(uuid, uuid), public.answer_join_request(uuid, uuid, boolean),
          public.set_group_locked(uuid, boolean), public.set_group_cooldowns(uuid, boolean),
          public.send_friend_request(uuid), public.respond_friend_request(bigint, boolean),
-         public.set_admin(uuid, boolean), public.ban_user(uuid, boolean)
+         public.set_admin(uuid, boolean), public.ban_user(uuid, boolean),
+         public.is_orphaned_image(text), public.orphaned_image_batch(), public.forget_deleted_images(text[])
   to authenticated;
 
 
@@ -833,6 +897,12 @@ create policy "members upload images to own folder" on storage.objects
 
 create policy "members view images" on storage.objects
   for select to authenticated using (bucket_id = 'chat-images' and public.is_member());
+
+-- Only images a wipe let go of can be deleted, by any member (see above).
+create policy "members clear wiped images" on storage.objects
+  for delete to authenticated using (
+    bucket_id = 'chat-images' and public.is_member() and public.is_orphaned_image(name)
+  );
 
 
 -- ---------------------------------------------------------------------------

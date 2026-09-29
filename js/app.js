@@ -263,6 +263,7 @@
   function systemText(m, r) {
     const who = nameOf(m.user_id);
     if (m.body === 'WIPE') return `*** ${fmtNum(st.settings.wipe_at_words)} words reached. Global chat and every group start over from a blank page. ***`;
+    if (m.body === 'WIPE_SPACE') return '*** The chat was running out of space. Global chat and every group start over from a blank page. Groups and friend chats stay. ***';
     if (m.body === 'CREATED') return `★ ${who} created #${r ? r.name : 'this room'}`;
     if (m.body === 'JOINED') return `★ ${who} has entered #${r ? r.name : 'this room'} from ${hostFor(m.user_id)}`;
     const target = nameOf(m.target_id);
@@ -282,7 +283,7 @@
   function messageRow(m, flash) {
     const r = st.rooms.get(m.room_id);
     if (m.kind === 'system' || m.kind === 'local') {
-      const mode = { PROMOTED: ' sys-mode', DEMOTED: ' sys-mode', BANNED: ' sys-ban', UNBANNED: ' sys-mode', LOCKED: ' sys-mode', UNLOCKED: ' sys-mode', COOLDOWNS_OFF: ' sys-mode', COOLDOWNS_ON: ' sys-mode', WIPE: ' sys-wipe' }[m.body] || '';
+      const mode = { PROMOTED: ' sys-mode', DEMOTED: ' sys-mode', BANNED: ' sys-ban', UNBANNED: ' sys-mode', LOCKED: ' sys-mode', UNLOCKED: ' sys-mode', COOLDOWNS_OFF: ' sys-mode', COOLDOWNS_ON: ' sys-mode', WIPE: ' sys-wipe', WIPE_SPACE: ' sys-wipe' }[m.body] || '';
       return el('div', 'sys' + (m.kind === 'local' ? '' : mode), m.kind === 'local' ? m.body : systemText(m, r));
     }
     const p = st.profiles.get(m.user_id);
@@ -346,7 +347,7 @@
 
   function addMessage(m) {
     const r = st.rooms.get(m.room_id);
-    if (m.kind === 'system' && m.body === 'WIPE') return handleWipe(m);
+    if (m.kind === 'system' && (m.body === 'WIPE' || m.body === 'WIPE_SPACE')) return handleWipe(m);
     if (st.msgs.has(m.room_id)) {
       const list = st.msgs.get(m.room_id);
       if (list.some((x) => x.id === m.id)) return;
@@ -374,6 +375,19 @@
     const r = room();
     if (r && r.kind !== 'dm') renderMessages();
     renderRooms(); renderStatus();
+    cleanupSoon();
+  }
+
+  // Delete image files that a wipe let go of. Every page does this a little
+  // while after a wipe or after signing in; staggered so they don't all pile in.
+  let cleaning = false;
+  function cleanupSoon() {
+    setTimeout(async () => {
+      if (cleaning || !entered || !backend.cleanupWipedImages) return;
+      cleaning = true;
+      try { await backend.cleanupWipedImages(); } catch (_) { /* tried again next time */ }
+      cleaning = false;
+    }, 3000 + Math.random() * 15000);
   }
 
   // ---------------------------------------------------------------- composer
@@ -446,7 +460,7 @@
       note('');
       if (res.wiped) {
         const g = globalRoom();
-        handleWipe({ id: 'wipe-' + res.id, room_id: g && g.id, user_id: null, kind: 'system', body: 'WIPE', created_at: new Date().toISOString() });
+        handleWipe({ id: 'wipe-' + res.id, room_id: g && g.id, user_id: null, kind: 'system', body: res.wipe || 'WIPE', created_at: new Date().toISOString() });
       } else {
         addMessage({ id: res.id, room_id: r.id, user_id: st.meId, kind: file ? 'image' : 'text', body: text,
           image_path: res.path || null, word_count: words, created_at: new Date().toISOString() });
@@ -1455,6 +1469,7 @@
     if (g) await openRoom(g.id);
     pushPresence();
     ping();
+    cleanupSoon();
   }
 
   function wire() {
@@ -1555,23 +1570,34 @@
 
     const MAX_IMAGE = 5 * 1024 * 1024;
 
-    // Big screenshots can be over 5 MB. Shrink those to a JPEG (longest side
-    // 2560px) instead of refusing them. GIFs are left alone so they keep moving.
+    // Shrink images before they upload, to save Supabase storage and
+    // bandwidth: longest side 1280px, compressed as WebP (or JPEG where the
+    // browser can't make WebP). GIFs are left alone so they keep moving, and
+    // the original is kept if shrinking wouldn't make it smaller.
+    const MAX_SIDE = 1280;
+    const toBlob = (c, type, q) => new Promise((res) => c.toBlob(res, type, q));
     async function shrinkIfNeeded(f) {
-      if (f.size <= MAX_IMAGE || f.type === 'image/gif' || !window.createImageBitmap) return f;
+      if (f.type === 'image/gif' || !window.createImageBitmap) return f;
       try {
         const bmp = await createImageBitmap(f);
-        const scale = Math.min(1, 2560 / Math.max(bmp.width, bmp.height));
+        const scale = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
+        if (scale === 1 && f.size <= 200 * 1024) return f;
         const c = document.createElement('canvas');
         c.width = Math.max(1, Math.round(bmp.width * scale));
         c.height = Math.max(1, Math.round(bmp.height * scale));
         const ctx = c.getContext('2d');
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, c.width, c.height);
         ctx.drawImage(bmp, 0, 0, c.width, c.height);
-        const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
-        if (!blob || blob.size > MAX_IMAGE) return f;
-        return new File([blob], (f.name || 'image').replace(/\.[^.]*$/, '') + '.jpg', { type: 'image/jpeg' });
+        let blob = await toBlob(c, 'image/webp', 0.82);
+        if (!blob || blob.type !== 'image/webp') {
+          // JPEG has no see-through parts: put white behind the picture.
+          ctx.globalCompositeOperation = 'destination-over';
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, c.width, c.height);
+          blob = await toBlob(c, 'image/jpeg', 0.82);
+        }
+        if (!blob || blob.size >= f.size) return f;
+        const ext = blob.type === 'image/webp' ? '.webp' : '.jpg';
+        return new File([blob], (f.name || 'image').replace(/\.[^.]*$/, '') + ext, { type: blob.type });
       } catch (_) { return f; }
     }
 
