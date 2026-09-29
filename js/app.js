@@ -108,10 +108,13 @@
     };
   }
 
+  // A short message under the text box (an error, or something that worked).
+  // Hidden when there's nothing to say.
   function note(text, kind) {
     const n = $('composer-note');
     n.textContent = text || '';
     n.className = 'composer-note' + (kind ? ' is-' + kind : '');
+    n.hidden = !text;
   }
 
   // ---------------------------------------------------------------- rooms
@@ -248,18 +251,6 @@
     oc.textContent = `${online.length} ${online.length === 1 ? 'person is' : 'people are'} online`;
     const h2 = $('room-title');
     if (window.matchMedia('(max-width: 560px)').matches && h2.scrollWidth > h2.clientWidth) oc.textContent = `${online.length} online`;
-    const msgs = st.msgs.get(r.id) || [];
-    const d = new Date();
-    const date = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${String(d.getFullYear()).slice(2)}`;
-    const count = msgs.filter((m) => m.kind !== 'system').length;
-    if (r.kind === 'dm') {
-      $('conv-label').textContent = `Private chat with ${nameOf(dmPartner(r))}`;
-      $('conv-meta').textContent = `${date} • ${st.settings.max_words_friends} words max • no images`;
-    } else {
-      $('conv-label').textContent = 'Live conversation';
-      $('conv-meta').textContent = `${date} • ${count} message${count === 1 ? '' : 's'}` +
-        (r.kind === 'group' && !cooldownsIn(r) ? ' • no cooldowns' : '');
-    }
   }
 
   function avatar(id, cls) {
@@ -431,14 +422,6 @@
         : `Flood control: wait ${mmss(lock.secs)}`;
     } else {
       input.placeholder = lim.dm ? `message ${nameOf(dmPartner(room()))}…` : 'say something…';
-    }
-    const n = $('composer-note');
-    if (!lock && !n.classList.contains('is-error') && !n.classList.contains('is-ok')) {
-      note(lim.dm
-        ? 'Friend chat: longer messages, no images.'
-        : cooldownsIn(room())
-          ? `Rules: ${st.settings.max_words_public} words per message • ${st.settings.spam_count} messages a minute max • sending an image locks you for ${imageLockText()}`
-          : `Rules: ${st.settings.max_words_public} words per message • cooldowns are off in this group`);
     }
   }
 

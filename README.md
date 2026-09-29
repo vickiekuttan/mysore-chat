@@ -35,7 +35,7 @@ Every number above lives in the `settings` table. Change it there (Supabase > Ta
 
 - **Admins can switch cooldowns off in any group** with the **Cooldowns off** button at the top of it (an hourglass on phones). Press it again to switch them back on.
 - In that group, sending an image doesn't lock you and there's no flood wait. The 8-word limit still applies, and messages still count toward the big wipe.
-- The group is told when it happens (`*** ADMIN_Jen switched off cooldowns in #skate_spot`), and its info line says **no cooldowns**.
+- The group is told when it happens (`*** ADMIN_Jen switched off cooldowns in #skate_spot`).
 - Global chat always keeps its cooldowns.
 
 ## Locked groups
