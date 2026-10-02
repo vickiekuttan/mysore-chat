@@ -527,6 +527,7 @@
   async function toggleReaction(messageId, kind) {
     const before = myReaction(messageId);
     const next = before === kind ? null : kind;
+    if (PZ.sound) PZ.sound.play(next === 'perfect' ? 'pak' : next === 'stinky' ? 'laddu' : 'unreact');
     setLocalReaction(messageId, st.meId, next);
     refreshReacts(messageId);
     try { await backend.setReaction(messageId, next); }
