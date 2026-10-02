@@ -386,5 +386,11 @@ await su(`update profiles set banned_at = null where id=$1`, [E]);
 await su('delete from messages where id=$1', [msgG]);
 ok('reactions go with their message', (await su('select count(*)::int n from message_reactions where message_id=$1', [msgG])).rows[0].n === 0);
 
+const loose = (await su(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')`)).rows.map((r) => r.proname);
+ok('every function pins its search_path', loose.length === 0, loose.join(', '));
+ok('word counting still works', (await su(`select public.count_words('  a-b-c  d ' || chr(160) || 'e') n`)).rows[0].n === 3);
+ok('invite codes still work', /^[0-9A-F]{10}$/.test((await su('select public.new_code() c')).rows[0].c));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

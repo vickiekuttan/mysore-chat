@@ -165,7 +165,7 @@ create table public.orphaned_images (
 -- Unusual Unicode spaces are treated as spaces so nobody can glue 20 words
 -- together with an invisible "non-breaking" space.
 create function public.count_words(t text) returns int
-language sql immutable as $$
+language sql immutable set search_path = '' as $$
   select case when s.n = '' then 0 else array_length(string_to_array(s.n, ' '), 1) end
   from (select btrim(regexp_replace(coalesce(t, ''),
           -- whitespace plus: no-break space, ogham space, U+2000 to U+200B,
@@ -195,7 +195,7 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 create function public.new_code() returns text
-language sql volatile as $$
+language sql volatile set search_path = '' as $$
   select upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10))
 $$;
 

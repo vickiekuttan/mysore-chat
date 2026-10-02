@@ -130,7 +130,7 @@ Checked against [supabase.com/pricing](https://supabase.com/pricing) in Septembe
 
 ## Check the rules yourself
 
-The database rules come with 181 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
+The database rules come with 184 automated checks that run on your computer in an in-memory copy of Postgres. You need [Node.js](https://nodejs.org) 18 or newer.
 
 ```bash
 npm install
