@@ -1,4 +1,4 @@
-// Pazhampori chat: the page itself. Reads state from a backend (Supabase or
+// Mysore chat: the page itself. Reads state from a backend (Supabase or
 // demo) and draws it. All text from people is inserted with textContent.
 (function () {
   const PZ = window.PZ;
@@ -11,10 +11,22 @@
     return n;
   };
 
-  const ICON_COLORS = { '#': '#f08a24', '*': '#29b6d6', '♬': '#4aa3ff', '@': '#4aa3ff', '?': '#a066ff',
-    '♥': '#ff3355', '!': '#ff9b2a', '~': '#12c08a', '$': '#e6c200', '%': '#e0338f' };
+  // Room icon colors from the design. "#" rooms take turns between four colors.
+  const ICON_COLORS = { '#': '#ff383c', '*': '#00c3d0', '♬': '#00c0e8', '@': '#0088ff', '?': '#6155f5',
+    '♥': '#ff2d55', '!': '#ac7f5e', '~': '#00c8b3', '$': '#ffcc00', '%': '#cb30e0' };
+  const HASH_COLORS = ['#ff383c', '#ff8d28', '#ffcc00', '#34c759'];
   const ICONS = Object.keys(ICON_COLORS);
-  const NAME_COLORS = ['#e0338f', '#8a2be2', '#1e6fe0', '#12a07a', '#e0661a', '#1ba3bd', '#b8860b', '#c2187a', '#5c9e1e', '#e6c200'];
+  const iconGlyph = (ic) => (ic === '♬' ? '♫' : ic);
+  const iconColor = (r) => {
+    if (r.icon !== '#') return ICON_COLORS[r.icon] || HASH_COLORS[0];
+    let h = 0; for (const c of String(r.name || r.id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return HASH_COLORS[h % HASH_COLORS.length];
+  };
+  // Name colors from the design. Older accounts picked from the previous
+  // palette; those show as their closest new color.
+  const NAME_COLORS = ['#d00086', '#6a00d4', '#005ed8', '#00785b', '#d45500', '#008ca0', '#7d5400', '#a0005c', '#c50000', '#3f8a00'];
+  const OLD_COLORS = { '#e0338f': '#d00086', '#8a2be2': '#6a00d4', '#1e6fe0': '#005ed8', '#12a07a': '#00785b', '#e0661a': '#d45500',
+    '#1ba3bd': '#008ca0', '#b8860b': '#7d5400', '#c2187a': '#a0005c', '#5c9e1e': '#3f8a00', '#e6c200': '#9a7b00' };
 
   let backend = null;
   let entered = false;
@@ -36,6 +48,7 @@
     peopleTab: 'all',
     reactions: new Map(),   // message id -> Map(user id -> 'perfect' | 'stinky')
     search: '',
+    peopleSearch: '',
     lag: null,
     conn: 'trying',
     typing: false,
@@ -59,15 +72,25 @@
   const reqKey = (roomId, userId) => roomId + '|' + userId;
   const myRoomReq = (roomId) => st.roomReqs.get(reqKey(roomId, st.meId));
   const pendingRequests = (roomId) => [...st.roomReqs.values()].filter((q) => q.room_id === roomId && q.kind === 'request');
+  // Material Symbols (Apache 2.0): the reaction chevron flips while its board is open.
+  const ICON_DROP_DOWN = '<svg viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M480-360 280-559h400L480-360Z"/></svg>';
+  const ICON_DROP_UP = '<svg viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="m280-400 200-201 200 201H280Z"/></svg>';
+  const ICON_CHECK = '<svg viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M378-246 154-470l43-43 181 181 384-384 43 43-427 427Z"/></svg>';
   const LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><rect x="1.5" y="6" width="9" height="7" fill="currentColor"/><path d="M3.6 6V4.2a2.4 2.4 0 0 1 4.8 0V6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
   const memberCount = (r) => r.kind === 'global' ? st.profiles.size : (st.members.get(r.id) || new Set()).size;
   const nameOf = (id) => { const p = st.profiles.get(id); return p ? p.username : 'someone'; };
-  const colorOf = (id) => { const p = st.profiles.get(id); return p && /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#9a9a9a'; };
+  const colorOf = (id) => {
+    const p = st.profiles.get(id);
+    if (!p || !/^#[0-9a-f]{6}$/i.test(p.color)) return '#9a9a9a';
+    return OLD_COLORS[p.color.toLowerCase()] || p.color;
+  };
+  // Profile icons use Coral Pixels, whose capital M is just dots: draw it as "m".
+  const avatarLetter = (name) => { const c = (String(name || '?')[0] || '?').toUpperCase(); return c === 'M' ? 'm' : c; };
   const fmtTime = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const fmtNum = (n) => Number(n || 0).toLocaleString('en-US');
   const secsLeft = (t) => t ? Math.max(0, Math.ceil((Date.parse(t) - Date.now()) / 1000)) : 0;
   const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  const hostFor = (id) => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) % 97; return `dialup-${h + 2}.pazhampori.net`; };
+  const hostFor = (id) => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) % 97; return `dialup-${h + 2}.mysore.net`; };
 
   function dmPartner(r) {
     const s = st.members.get(r.id);
@@ -91,7 +114,8 @@
   }
   function presenceOf(id) {
     const p = st.presence[id];
-    if (!p) return { state: 'offline' };
+    // You're online on this page even before your own presence comes back.
+    if (!p) return id === st.meId ? { state: 'online', idleMin: 0 } : { state: 'offline' };
     const idleMin = p.active_at ? Math.max(0, Math.floor((Date.now() - p.active_at) / 60000)) : 0;
     if (p.typing) return { state: 'typing', idleMin: 0, p };
     if (p.away) return { state: 'away', idleMin, p };
@@ -154,8 +178,8 @@
       icon = el('span', 'room-icon room-icon-globe');
       icon.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1.8 8h12.4M8 1.7c2 2 2 10.6 0 12.6M8 1.7c-2 2-2 10.6 0 12.6" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
     } else {
-      icon = el('span', 'room-icon', r.icon);
-      icon.style.color = ICON_COLORS[r.icon] || '#f08a24';
+      icon = el('span', 'room-icon', iconGlyph(r.icon));
+      icon.style.color = iconColor(r);
     }
     const name = el('span', 'room-name', roomLabel(r));
     if (r.locked) {
@@ -189,6 +213,7 @@
   // ---------------------------------------------------------------- chat
   async function openRoom(roomId) {
     if (!st.rooms.has(roomId)) return;
+    closeBoard(true);
     st.current = roomId;
     st.unread.delete(roomId);
     note('');
@@ -229,7 +254,7 @@
   function renderHead() {
     const r = room();
     if (!r) return;
-    $('room-title').textContent = r.kind === 'global' ? 'Global Chat' : r.kind === 'dm' ? '@' + nameOf(dmPartner(r)) : '#' + r.name;
+    $('room-title').textContent = r.kind === 'global' ? '#Global Chat' : r.kind === 'dm' ? '@' + nameOf(dmPartner(r)) : '#' + r.name;
     const lockBtn = $('btn-lock-toggle');
     lockBtn.hidden = !(r.kind === 'group' && amAdmin());
     lockBtn.querySelector('.lock-label').textContent = r.locked ? 'Unlock group' : 'Lock group';
@@ -251,15 +276,11 @@
     const stack = $('avatar-stack');
     stack.textContent = '';
     online.slice(0, 3).forEach((id) => stack.append(avatar(id, 'avatar-sm')));
-    // Full wording like the design; shortened only if it would squeeze the room name.
-    const oc = $('online-count');
-    oc.textContent = `${online.length} ${online.length === 1 ? 'person is' : 'people are'} online`;
-    const h2 = $('room-title');
-    if (window.matchMedia('(max-width: 560px)').matches && h2.scrollWidth > h2.clientWidth) oc.textContent = `${online.length} online`;
+    $('online-count').textContent = `${online.length} ${online.length === 1 ? 'person is' : 'people are'} online`;
   }
 
   function avatar(id, cls) {
-    const a = el('span', 'avatar ' + (cls || ''), (nameOf(id)[0] || '?').toUpperCase());
+    const a = el('span', 'avatar ' + (cls || ''), avatarLetter(nameOf(id)));
     a.style.background = colorOf(id);
     a.setAttribute('aria-hidden', 'true');
     return a;
@@ -315,32 +336,83 @@
       img.loading = 'lazy';
       backend.imageUrl(m.image_path).then((u) => { img.src = u; }).catch(() => { img.replaceWith(el('span', 'img-missing', '[image unavailable]')); });
       body.append(img);
-      if (m.body) body.append(el('div', 'caption', m.body));
+      if (m.body) { const cap = el('div', 'caption'); appendText(cap, m.body); body.append(cap); }
     } else {
-      body.textContent = m.body;
+      appendText(body, m.body);
     }
     row.append(who, body);
     if (typeof m.id === 'number') {
       row.dataset.mid = String(m.id);
-      row.append(el('div', 'reacts'), reactionPicker(m.id));
+      // Desktop: a chevron shows on hover and opens the reaction board.
+      const tog = el('button', 'react-toggle');
+      tog.type = 'button';
+      tog.innerHTML = boardFor === m.id ? ICON_DROP_UP : ICON_DROP_DOWN;
+      tog.title = 'React';
+      tog.setAttribute('aria-label', `React to ${p ? p.username : 'this'}'s message`);
+      tog.setAttribute('aria-haspopup', 'menu');
+      tog.setAttribute('aria-expanded', String(boardFor === m.id));
+      tog.addEventListener('click', (e) => { e.stopPropagation(); toggleBoard(m.id, tog); });
+      row.append(tog, el('div', 'reacts'));
       fillReacts(row, m.id);
-      // Phones have no hover: tap a message to show the reaction buttons.
-      row.addEventListener('click', (e) => {
-        if (HOVER.matches || e.target.closest('button, a, img')) return;
-        const on = !row.classList.contains('is-picking');
-        document.querySelectorAll('.msg.is-picking').forEach((x) => x.classList.remove('is-picking'));
-        row.classList.toggle('is-picking', on);
-      });
+      // Phones: long-press a message to react.
+      longPress(row, () => openBoard(m.id, null));
     }
     return row;
   }
 
+  // Message text, with @names of members picked out in yellow.
+  function appendText(node, text) {
+    const t = String(text || '');
+    const byName = new Map();
+    for (const p of st.profiles.values()) byName.set(p.username.toLowerCase(), p);
+    const re = /@([A-Za-z0-9_]{3,20})/g;
+    let last = 0;
+    let hit;
+    while ((hit = re.exec(t))) {
+      const p = byName.get(hit[1].toLowerCase());
+      if (!p) continue;
+      if (hit.index > last) node.append(document.createTextNode(t.slice(last, hit.index)));
+      node.append(el('span', 'mention' + (p.id === st.meId ? ' is-me' : ''), hit[0]));
+      last = hit.index + hit[0].length;
+    }
+    if (last < t.length) node.append(document.createTextNode(t.slice(last)));
+  }
+
+  function mentionsMe(text) {
+    const p = me();
+    if (!p || !text) return false;
+    return new RegExp('@' + p.username + '(?![A-Za-z0-9_])', 'i').test(text);
+  }
+
+  // Hold a finger on a message for a moment (without moving) to call fn.
+  function longPress(row, fn) {
+    let timer = null;
+    let fired = false;
+    let sx = 0;
+    let sy = 0;
+    const cancel = () => { clearTimeout(timer); timer = null; };
+    row.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch' || e.target.closest('button, a, img')) return;
+      fired = false; sx = e.clientX; sy = e.clientY;
+      cancel();
+      timer = setTimeout(() => {
+        timer = null; fired = true;
+        if (navigator.vibrate) navigator.vibrate(10);
+        fn();
+      }, 450);
+    });
+    row.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) cancel(); });
+    row.addEventListener('pointerup', cancel);
+    row.addEventListener('pointercancel', cancel);
+    row.addEventListener('contextmenu', (e) => { if (fired || timer) e.preventDefault(); });
+  }
+
   // ---------------------------------------------------------------- reactions
+  // The database stores 'perfect' and 'stinky'; these are their pictures and names.
   const REACTIONS = [
-    { kind: 'perfect', label: 'Perfect pazhampori', src: 'assets/react-perfect.png' },
-    { kind: 'stinky', label: 'Stinky kayappam', src: 'assets/react-stinky.png' }
+    { kind: 'perfect', label: '1kg mysore_pak', src: 'assets/react-mysore-pak.png', src2: 'assets/react-mysore-pak@2x.png' },
+    { kind: 'stinky', label: 'stinky_laddu', src: 'assets/react-laddu.png', src2: 'assets/react-laddu@2x.png' }
   ];
-  const HOVER = window.matchMedia('(hover: hover)');
 
   function setLocalReaction(messageId, userId, kind) {
     let m = st.reactions.get(messageId);
@@ -350,25 +422,79 @@
   }
   const myReaction = (messageId) => (st.reactions.get(messageId) || new Map()).get(st.meId) || null;
 
-  function reactIcon(r, size) {
+  function reactIcon(r) {
     const img = el('img', 'react-ico');
-    img.src = r.src; img.alt = ''; img.width = size; img.height = size;
+    img.src = r.src; img.srcset = `${r.src} 4x, ${r.src2} 8x`;
+    img.alt = ''; img.width = 18; img.height = 15;
     return img;
   }
 
-  function reactionPicker(messageId) {
-    const pick = el('div', 'react-pick');
-    REACTIONS.forEach((r) => {
-      const b = el('button', 'react-opt');
-      b.type = 'button';
-      b.dataset.kind = r.kind;
-      b.title = r.label;
-      b.setAttribute('aria-label', `React: ${r.label}`);
-      b.append(reactIcon(r, 26));
-      b.addEventListener('click', (e) => { e.stopPropagation(); toggleReaction(messageId, r.kind); });
-      pick.append(b);
+  // The reaction board: one shared menu, dropped down under a message's
+  // chevron, or shown as a bottom sheet on phones after a long press.
+  let boardFor = null;
+  let boardOpenedAt = 0;
+  const rowFor = (messageId) => $('messages').querySelector(`.msg[data-mid="${messageId}"]`);
+
+  function setChevron(messageId, open) {
+    const row = rowFor(messageId);
+    if (!row) return;
+    row.classList.toggle('is-picking', open);
+    const t = row.querySelector('.react-toggle');
+    if (t) { t.innerHTML = open ? ICON_DROP_UP : ICON_DROP_DOWN; t.setAttribute('aria-expanded', String(open)); }
+  }
+
+  function openBoard(messageId, anchor) {
+    if (boardFor !== null) closeBoard(true);
+    const board = $('react-board');
+    const row = rowFor(messageId);
+    if (!row) return;
+    boardFor = messageId;
+    const mine = myReaction(messageId);
+    board.querySelectorAll('.react-row').forEach((b) => {
+      b.classList.toggle('is-mine', b.dataset.kind === mine);
+      b.setAttribute('aria-checked', String(b.dataset.kind === mine));
     });
-    return pick;
+    setChevron(messageId, true);
+    const sheet = !anchor && isPhone();
+    board.classList.toggle('is-sheet', sheet);
+    board.style.left = ''; board.style.top = '';
+    board.hidden = false;
+    if (sheet) {
+      boardOpenedAt = Date.now();
+      document.body.classList.add('show-react');
+    } else {
+      // Under the chevron, right edges lined up; above it if there's no room below.
+      const chat = board.offsetParent.getBoundingClientRect();
+      const a = (anchor && anchor.offsetParent ? anchor : row).getBoundingClientRect();
+      const w = board.offsetWidth;
+      const h = board.offsetHeight;
+      let top = a.bottom - chat.top + 4;
+      if (top + h > chat.height - 8) top = Math.max(8, a.top - chat.top - h - 4);
+      const left = Math.min(Math.max(8, a.right - chat.left - w), chat.width - w - 8);
+      board.style.top = top + 'px';
+      board.style.left = left + 'px';
+    }
+    if (!sheet && anchor) board.querySelector('.react-row').focus({ preventScroll: true });
+  }
+
+  function closeBoard(keepFocus) {
+    if (boardFor === null) return;
+    const id = boardFor;
+    boardFor = null;
+    const board = $('react-board');
+    const hadFocus = board.contains(document.activeElement);
+    board.hidden = true;
+    board.classList.remove('is-sheet');
+    document.body.classList.remove('show-react');
+    setChevron(id, false);
+    if (hadFocus && !keepFocus) {
+      const t = rowFor(id) && rowFor(id).querySelector('.react-toggle');
+      if (t && t.offsetParent) t.focus({ preventScroll: true });
+    }
+  }
+
+  function toggleBoard(messageId, anchor) {
+    if (boardFor === messageId) closeBoard(); else openBoard(messageId, anchor);
   }
 
   // Counts under a message, and which button is yours.
@@ -386,11 +512,10 @@
       const names = ids.map((u) => (u === st.meId ? 'you' : nameOf(u)));
       chip.title = `${r.label}: ${names.slice(0, 12).join(', ')}${names.length > 12 ? ` and ${names.length - 12} more` : ''}`;
       chip.setAttribute('aria-label', `${ids.length} ${r.label}. ${mine === r.kind ? 'Tap to take yours back.' : 'Tap to add yours.'}`);
-      chip.append(reactIcon(r, 22), el('span', 'react-n', String(ids.length)));
+      chip.append(reactIcon(r), el('span', 'react-n', String(ids.length)));
       chip.addEventListener('click', (e) => { e.stopPropagation(); toggleReaction(messageId, r.kind); });
       box.append(chip);
     });
-    row.querySelectorAll('.react-opt').forEach((b) => b.classList.toggle('is-mine', b.dataset.kind === mine));
   }
 
   function refreshReacts(messageId) {
@@ -404,7 +529,6 @@
     const next = before === kind ? null : kind;
     setLocalReaction(messageId, st.meId, next);
     refreshReacts(messageId);
-    document.querySelectorAll('.msg.is-picking').forEach((x) => x.classList.remove('is-picking'));
     try { await backend.setReaction(messageId, next); }
     catch (e) {
       setLocalReaction(messageId, st.meId, before);
@@ -421,6 +545,7 @@
   }
 
   function renderMessages() {
+    closeBoard(true);
     const box = $('messages');
     box.textContent = '';
     const list = combined(st.current);
@@ -439,8 +564,20 @@
     if (nearBottom || m.user_id === st.meId) box.scrollTop = box.scrollHeight;
   }
 
+  // 8-bit blips: friend chats and @mentions of you ping; other messages in
+  // the room you're looking at blip. Never for your own messages.
+  function soundFor(m) {
+    if (!PZ.sound || m.user_id === st.meId || m.kind === 'system' || m.kind === 'local') return;
+    const r = st.rooms.get(m.room_id);
+    if (!r || !isMemberOf(r.id)) return;
+    if (r.kind === 'dm' || mentionsMe(m.body)) PZ.sound.play('ping');
+    else if (m.room_id === st.current) PZ.sound.play('message');
+  }
+
   function addMessage(m) {
     const r = st.rooms.get(m.room_id);
+    const seen = st.msgs.has(m.room_id) && st.msgs.get(m.room_id).some((x) => x.id === m.id);
+    if (!seen) soundFor(m);
     if (m.kind === 'system' && m.body === 'WIPE') return handleWipe(m);
     if (st.msgs.has(m.room_id)) {
       const list = st.msgs.get(m.room_id);
@@ -501,8 +638,10 @@
     const lim = limits();
     const words = PZ.countWords(input.value);
     const wc = $('word-count');
-    wc.textContent = `${words}/${lim.words}`;
-    wc.classList.toggle('is-over', words > lim.words || input.value.trim().length > lim.chars);
+    const over = words > lim.words || input.value.trim().length > lim.chars;
+    const near = words > 0 && words >= lim.words - 1;
+    wc.textContent = over || near ? `${words}/${lim.words}` : '';
+    wc.classList.toggle('is-over', over);
     $('img-btn').hidden = lim.dm;
     $('img-btn').title = `Send an image (locks you for ${imageLockText()})`;
     const lock = lockState();
@@ -597,19 +736,29 @@
 
   // ---------------------------------------------------------------- people
   // Inside a group, "people here" means the group's members. In Global chat
-  // and friend chats it means everyone in Pazhampori chat.
+  // and friend chats it means everyone in Mysore chat.
   function groupMembersHere() {
     const r = room();
     return r && r.kind === 'group' ? (st.members.get(r.id) || new Set()) : null;
   }
 
+  // 1500 -> "1.5K", for the friend count on the tab.
+  const shortNum = (n) => n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}K` : String(n);
+
   function renderPeople() {
     const list = $('people-list');
     list.textContent = '';
+    const q = st.peopleSearch.trim().toLowerCase();
+    const found = (id) => !q || nameOf(id).toLowerCase().includes(q);
     const everyone = [...st.profiles.keys()];
     const here = groupMembersHere();
-    const ids = st.peopleTab === 'all' && here ? everyone.filter((id) => here.has(id)) : everyone;
-    const incoming = [...st.requests.values()].filter((r) => r.status === 'pending' && r.to_user === st.meId && st.profiles.has(r.from_user));
+    const incomingAll = [...st.requests.values()].filter((r) => r.status === 'pending' && r.to_user === st.meId && st.profiles.has(r.from_user));
+    // New friend requests sit at the top of ALL (outside groups) and of FRIENDS.
+    const showRequests = st.peopleTab === 'friends' || !here;
+    const incoming = showRequests ? incomingAll.filter((r) => found(r.from_user)) : [];
+    const asking = new Set(incoming.map((r) => r.from_user));
+    const ids = (st.peopleTab === 'all' && here ? everyone.filter((id) => here.has(id)) : everyone)
+      .filter((id) => found(id) && !asking.has(id));
     const rank = { typing: 0, online: 0, away: 1, offline: 2 };
     const banned = (id) => !!st.profiles.get(id).banned_at;
     const isOp = (id) => st.profiles.get(id).is_admin && !banned(id);
@@ -618,30 +767,31 @@
 
     let dmUnread = 0;
     for (const r of st.rooms.values()) if (r.kind === 'dm') dmUnread += st.unread.get(r.id) || 0;
-    const fb = $('friends-badge');
-    const badgeCount = incoming.length + dmUnread;
-    fb.hidden = !badgeCount; fb.textContent = String(badgeCount);
-    const pb = $('people-badge');
-    pb.hidden = !badgeCount; pb.textContent = String(badgeCount);
+    // FRIENDS tab: red dot = new friend requests, (n) = how many friends you have.
+    const friendTotal = everyone.filter((id) => id !== st.meId && relation(id).kind === 'friends').length;
+    $('friends-dot').hidden = !incomingAll.length;
+    $('friends-count').textContent = `(${shortNum(friendTotal)})`;
+    $('ptab-friends').title = `${friendTotal} friend${friendTotal === 1 ? '' : 's'}` +
+      (incomingAll.length ? `, ${incomingAll.length} new request${incomingAll.length === 1 ? '' : 's'}` : '');
+    // Phones: the people button gets the dot for requests and unread friend chats.
+    $('people-dot').hidden = !(incomingAll.length || dmUnread);
 
-    if (st.peopleTab === 'all' && here) {
+    if (st.peopleTab === 'all' && here && !q) {
       const r = room();
       list.append(el('div', 'people-scope', `#${r.name}: ${ids.length} member${ids.length === 1 ? '' : 's'}`));
     }
-    ops.forEach((id) => list.append(personRow(id)));
+    incoming.forEach((r) => list.append(personRow(r.from_user, r)));
     if (st.peopleTab === 'all') {
+      ops.forEach((id) => list.append(personRow(id)));
       ids.filter((id) => !isOp(id)).sort(byPresence).forEach((id) => list.append(personRow(id)));
+      if (!ids.length && !incoming.length) list.append(el('p', 'people-empty', q ? `Nobody called "${q}".` : 'Nobody here yet.'));
     } else {
-      if (incoming.length) {
-        const banner = el('div', 'req-banner');
-        banner.append(el('span', null, 'New friend requests'), el('span', 'req-count', String(incoming.length).padStart(2, '0')));
-        list.append(banner);
-        incoming.forEach((r) => list.append(personRow(r.from_user, r)));
-      }
-      const friends = ids.filter((id) => !isOp(id) && relation(id).kind === 'friends').sort(byPresence);
+      const friends = ids.filter((id) => relation(id).kind === 'friends')
+        .sort((a, b) => (isOp(b) - isOp(a)) || byPresence(a, b));
       friends.forEach((id) => list.append(personRow(id)));
       if (!friends.length && !incoming.length) {
-        list.append(el('p', 'people-empty', 'No friends yet. Press "+ Add Friend" next to someone in ALL. They have to accept before you can chat.'));
+        list.append(el('p', 'people-empty', q ? `No friend called "${q}".`
+          : 'No friends yet. Press "+ Add friend" next to someone in ALL. They have to accept before you can chat.'));
       }
     }
   }
@@ -650,8 +800,13 @@
     const p = st.profiles.get(id);
     const pr = presenceOf(id);
     if (p.banned_at) return el('span', 'person-status is-banned', '✕ banned');
-    return el('span', 'person-status is-' + pr.state,
-      pr.state === 'typing' ? '● typing...' : pr.state === 'online' ? (p.is_admin ? '● moderating' : '● online') : pr.state === 'away' ? '○ away' : 'offline');
+    const line = el('span', 'person-status is-' + pr.state);
+    if (pr.state === 'typing' || pr.state === 'online') {
+      line.append(el('span', 'st-dot', '●'), ' ' + (pr.state === 'typing' ? 'typing...' : p.is_admin ? 'moderating' : 'online'));
+    } else {
+      line.textContent = pr.state === 'away' ? '○ away' : 'offline';
+    }
+    return line;
   }
 
   function metaLine(id) {
@@ -676,11 +831,13 @@
     const p = st.profiles.get(id);
     const pr = presenceOf(id);
     const rel = id === st.meId ? { kind: 'me' } : relation(id);
-    const row = el('div', 'person' + (p.is_admin && !p.banned_at ? ' is-op' : '') +
+    const req = incomingReq || (rel.kind === 'incoming' ? rel.req : null);
+    const row = el('div', 'person' + (incomingReq ? ' is-request' : '') + (p.is_admin && !p.banned_at ? ' is-op' : '') +
       (pr.state === 'offline' ? ' is-offline' : '') + (p.banned_at ? ' is-banned' : ''));
     const main = el('button', 'person-main');
     main.type = 'button';
-    main.title = `${p.username}: profile${id === st.meId ? '' : ', friend'}${me() && me().is_admin ? ', admin tools' : ''}`;
+    main.title = req ? `${p.username} wants to be friends. Open their card to decline.`
+      : `${p.username}: profile${id === st.meId ? '' : ', friend'}${me() && me().is_admin ? ', admin tools' : ''}`;
     main.addEventListener('click', () => openPerson(id));
     const av = avatar(id, 'avatar-lg');
     const info = el('span', 'person-info');
@@ -695,30 +852,34 @@
     const act = el('div', 'person-act');
     if (p.banned_at) {
       // no friend actions for banned people
-    } else if (incomingReq) {
-      const acc = el('button', 'btn btn-sm', '✓ Accept');
+    } else if (req) {
+      // Accept here; Decline is on their card.
+      const acc = el('button', 'btn btn-sm btn-yellow');
       acc.type = 'button';
-      acc.addEventListener('click', () => respond(incomingReq.id, true));
-      const dec = el('button', 'btn btn-sm btn-dark', '✕');
-      dec.type = 'button';
-      dec.title = 'Decline';
-      dec.setAttribute('aria-label', `Decline ${p.username}`);
-      dec.addEventListener('click', () => respond(incomingReq.id, false));
-      act.append(acc, dec);
+      acc.innerHTML = ICON_CHECK;
+      acc.append('Accept');
+      acc.setAttribute('aria-label', `Accept ${p.username}'s friend request`);
+      acc.addEventListener('click', () => { acc.disabled = true; respond(req.id, true); });
+      act.append(acc);
     } else if (rel.kind === 'friends') {
+      // FRIENDS shows a Chat button for everyone; ALL only when there's something unread.
       const dm = dmRoomWith(id);
       const unread = dm ? st.unread.get(dm.id) || 0 : 0;
-      const chat = el('button', 'btn btn-sm' + (unread ? ' has-unread' : ' btn-dark'), unread ? `Chat (${unread})` : 'Chat');
-      chat.type = 'button';
-      chat.addEventListener('click', () => { if (dm) { openRoom(dm.id); closeOverlays(); } });
-      act.append(chat);
+      if (unread || st.peopleTab === 'friends') {
+        const chat = el('button', 'btn btn-sm' + (unread ? ' has-unread' : ' btn-dark'), unread ? `Chat (${unread})` : 'Chat');
+        chat.type = 'button';
+        chat.setAttribute('aria-label', unread ? `Chat with ${p.username}: ${unread} unread` : `Chat with ${p.username}`);
+        chat.addEventListener('click', () => { if (dm) { openRoom(dm.id); closeOverlays(); } });
+        act.append(chat);
+      }
     } else if (rel.kind === 'outgoing') {
       const b = el('button', 'btn btn-sm btn-dark', 'Requested');
       b.type = 'button'; b.disabled = true;
       act.append(b);
     } else if (rel.kind !== 'me') {
-      const add = el('button', 'btn btn-sm', '+ Add Friend');
+      const add = el('button', 'btn btn-sm', '+ Add friend');
       add.type = 'button';
+      add.setAttribute('aria-label', `Add ${p.username} as a friend`);
       add.addEventListener('click', () => addFriend(id, add));
       act.append(add);
     }
@@ -805,7 +966,7 @@
     if (!p) { if (d.open) d.close(); return; }
     const mine = me();
     const isMe = id === st.meId;
-    const first = p.username[0] ? p.username[0].toUpperCase() : '?';
+    const first = avatarLetter(p.username);
 
     const av = $('pc-avatar');
     av.textContent = first;
@@ -872,7 +1033,7 @@
       aa.append(cardButton('Cancel', 'btn-dark', () => { st.cardConfirm = null; renderPersonCard(); }),
         cardButton('Yes, ban', 'btn-danger', () => cardAction(() => banUser(id, true))));
     } else if (st.cardConfirm === 'promote') {
-      hint.textContent = `Make ${p.username} an admin of all of Pazhampori chat? They'll be able to ban people, promote others and lock any group. Everyone will see it in Global chat.`;
+      hint.textContent = `Make ${p.username} an admin of all of Mysore chat? They'll be able to ban people, promote others and lock any group. Everyone will see it in Global chat.`;
       aa.append(cardButton('Cancel', 'btn-dark', () => { st.cardConfirm = null; renderPersonCard(); }),
         cardButton('Yes, make admin', '', () => cardAction(() => setAdmin(id, true))));
     } else if (p.banned_at) {
@@ -942,9 +1103,6 @@
     ['toolbar', 'main', 'signon'].forEach((x) => { $(x).hidden = true; });
     document.querySelectorAll('dialog[open]').forEach((d) => d.close());
     $('banned').hidden = false;
-    $('sb-conn').textContent = 'NO CARRIER';
-    $('sb-words').textContent = '';
-    $('sb-you').hidden = true;
   }
 
   function addMember(roomId, userId) {
@@ -994,21 +1152,33 @@
   }
 
   // ---------------------------------------------------------------- status
+  // The connection display (top bar) stays out of the way while all is
+  // well, and the card at the bottom of the rooms panel is you.
   function renderStatus() {
     const p = me();
+    const demo = backend.mode === 'demo';
     const up = st.conn === 'up';
     const conn = $('conn');
-    conn.classList.toggle('is-down', !up);
-    $('conn-text').textContent = up ? `CONNECTED • ${p ? p.modem : '56k'}` : st.conn === 'down' ? 'NO CARRIER' : 'CONNECTING…';
-    $('sb-conn').textContent = `${backend.mode === 'demo' ? 'DEMO MODE • ' : 'Secure-ish connection to '}${backend.host}` +
-      (st.lag !== null ? ` • Lag ${(st.lag / 1000).toFixed(1)} sec` : '');
-    const compact = (n) => n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.floor(n / 1e3)}k` : String(n);
-    $('sb-words').textContent = window.matchMedia('(max-width: 560px)').matches
-      ? `${compact(Number(st.settings.total_words))}/${compact(Number(st.settings.wipe_at_words))} words`
-      : `${fmtNum(st.settings.total_words)} / ${fmtNum(st.settings.wipe_at_words)} words`;
-    const you = $('sb-you');
+    conn.classList.toggle('is-up', up && !demo);
+    conn.classList.toggle('is-down', st.conn === 'down' && !demo);
+    $('conn-text').textContent = demo ? 'DEMO MODE' : up ? 'CONNECTED' : st.conn === 'down' ? 'NO CARRIER' : 'CONNECTING…';
+    conn.title = demo ? 'Demo mode: everything stays in this browser'
+      : `${backend.host}${st.lag !== null ? ` • lag ${(st.lag / 1000).toFixed(1)} sec` : ''}`;
+
+    const you = $('you-card');
     you.hidden = !p;
-    if (p) you.textContent = `you: ${p.username}`;
+    if (p) {
+      you.textContent = '';
+      const top = el('span', 'you-top');
+      const name = el('span', 'you-name', p.username);
+      name.style.color = colorOf(st.meId);
+      top.append(name, ...tagEls(st.meId).filter((t) => !t.classList.contains('you-tag')));
+      const info = el('span', 'you-info');
+      info.append(top, statusLine(st.meId));
+      you.append(avatar(st.meId, 'avatar-md'), info);
+      you.setAttribute('aria-label', `You: ${p.username}. Edit your profile`);
+    }
+    if ($('dlg-rules').open) renderRules();
   }
 
   async function ping() {
@@ -1155,7 +1325,7 @@
   // ---------------------------------------------------------------- side panels
   const PHONE = window.matchMedia('(max-width: 960px)');
   const isPhone = () => PHONE.matches;
-  const sheetOpen = () => document.body.classList.contains('show-rooms') || document.body.classList.contains('show-people');
+  const sheetOpen = () => ['show-rooms', 'show-people', 'show-react'].some((c) => document.body.classList.contains(c));
   let sheetOpener = null;
 
   // which: 'rooms' | 'people'. On phones this opens/closes a bottom sheet;
@@ -1165,6 +1335,7 @@
     if (isPhone()) {
       if (!open) return closeOverlays();
       sheetOpener = document.activeElement;
+      closeBoard(true);
       body.classList.remove('show-rooms', 'show-people');
       body.classList.add('show-' + which);
       const focusTarget = which === 'rooms' ? $('btn-collapse-rooms') : $('btn-collapse-people');
@@ -1190,7 +1361,7 @@
     handle.addEventListener('pointerdown', (e) => {
       if (!isPhone() || e.target.closest('button, input')) return;
       startY = e.clientY;
-      sheet = handle.closest('.panel');
+      sheet = handle.closest('.panel, .react-board');
       sheet.style.transition = 'none';
       handle.setPointerCapture(e.pointerId);
     });
@@ -1211,6 +1382,7 @@
   }
 
   function closeOverlays() {
+    closeBoard();
     const wasOpen = sheetOpen();
     document.body.classList.remove('show-rooms', 'show-people');
     if (wasOpen && sheetOpener && document.contains(sheetOpener)) sheetOpener.focus({ preventScroll: true });
@@ -1224,8 +1396,8 @@
     if (!groups.length) list.append(el('p', null, "You're already in every group. Make a new one with Create group."));
     groups.forEach((r) => {
       const row = el('div', 'join-row');
-      const icon = el('span', 'room-icon', r.icon);
-      icon.style.color = ICON_COLORS[r.icon] || '#f08a24';
+      const icon = el('span', 'room-icon', iconGlyph(r.icon));
+      icon.style.color = iconColor(r);
       const name = el('span', 'join-name', r.name);
       if (r.locked) { const lock = el('span', 'room-lock'); lock.innerHTML = LOCK_SVG; name.append(lock); }
       const q = myRoomReq(r.id);
@@ -1309,8 +1481,8 @@
       const l = el('label', 'icon-opt');
       const inp = el('input');
       inp.type = 'radio'; inp.name = 'icon'; inp.value = ic; inp.checked = i === 0;
-      const sp = el('span', null, ic);
-      sp.style.color = ICON_COLORS[ic];
+      const sp = el('span', null, iconGlyph(ic));
+      sp.style.color = ic === '#' ? HASH_COLORS[1] : ICON_COLORS[ic];
       l.append(inp, sp);
       fs.append(l);
     });
@@ -1325,6 +1497,7 @@
     $('prof-status').value = p.status_text || '';
     $('prof-modem').value = p.modem;
     $('prof-error').hidden = true;
+    $('prof-sound').checked = !!(PZ.sound && PZ.sound.on);
     const fs = $('prof-colors');
     fs.querySelectorAll('label').forEach((n) => n.remove());
     const colors = NAME_COLORS.includes(p.color) ? NAME_COLORS : [p.color].concat(NAME_COLORS);
@@ -1341,6 +1514,92 @@
     $('dlg-profile').showModal();
   }
 
+  // ---------------------------------------------------------------- welcome & rules
+  // Shown on your first visit and from the book button. The numbers come
+  // from the live settings, so they're always the rules the database enforces.
+  const RULES_SEEN = 'pz_rules_seen_';
+  let rulesAt = 0;
+
+  function secondsText(sec) {
+    const s = Number(sec) || 0;
+    if (s % 60 === 0) return s === 60 ? '1 minute' : `${s / 60} minutes`;
+    return `${s} seconds`;
+  }
+
+  function rulesSlides() {
+    const s = st.settings;
+    const n = (x) => ({ hl: fmtNum(Number(x) || 0) });
+    return [
+      { title: 'Messages', body: [
+        [n(s.max_words_public), ' words and ', n(s.max_chars_public), ' characters per message. A "word" is anything between spaces, so a-b-c counts as one.'],
+        ['An image caption counts toward the ', n(s.max_words_public), ' words.']] },
+      { title: 'Images', body: [
+        ['Images are allowed in Global chat and groups, up to 5 MB. Press the picture button or paste one.'],
+        ["After you send an image you can't send anything for ", { hl: secondsText(s.image_lock_seconds) }, '.']] },
+      { title: 'Flood control', body: [
+        [n(s.spam_count), ' messages within ', { hl: secondsText(s.spam_window_seconds) }, ' and you wait ', { hl: secondsText(s.spam_wait_seconds) }, '.'],
+        ['Cooldowns always apply in Global chat. Group admins can switch them off for their group. Friend chats never have them.']] },
+      { title: 'The big wipe', body: [
+        ['When Global chat and all groups together reach ', n(s.wipe_at_words), ' words, every message in them is erased and everyone starts over.'],
+        ['So far: ', n(s.total_words), ' words. Groups stay; friend chats are never counted or erased.']] },
+      { title: 'Friends & reactions', body: [
+        ['Once someone accepts your friend request you get a private chat: up to ', n(s.max_words_friends), ' words per message, no images.'],
+        [isPhone() ? 'Long-press' : 'Hover and press the arrow on', ' a message to give it a ', { hl: '1kg mysore_pak' }, ' or a ', { hl: 'stinky_laddu' }, '. One each.']] },
+      { title: 'Invites & groups', body: [
+        ['Mysore chat is invite-only. Each member can have ', n(s.max_active_invites), ' live invite links; each works for ', { hl: `${Number(s.invite_days) || 0} days` }, '.'],
+        ['Anyone can start a group. Locked groups let admins decide who gets in.']] }
+    ];
+  }
+
+  function renderRules() {
+    const slides = rulesSlides();
+    rulesAt = Math.max(0, Math.min(slides.length - 1, rulesAt));
+    const sl = slides[rulesAt];
+    $('rules-num').textContent = String(rulesAt + 1).padStart(2, '0');
+    $('rules-title').textContent = sl.title;
+    const body = $('rules-body');
+    body.textContent = '';
+    sl.body.forEach((parts) => {
+      const para = el('p');
+      parts.forEach((x) => para.append(typeof x === 'string' ? document.createTextNode(x) : el('span', 'hl', x.hl)));
+      body.append(para);
+    });
+    $('rules-page').textContent = `${rulesAt + 1}/${slides.length}`;
+    $('rules-prev').disabled = rulesAt === 0;
+    $('rules-next').disabled = rulesAt === slides.length - 1;
+    const dots = $('rules-dots');
+    if (dots.children.length !== slides.length) {
+      dots.textContent = '';
+      slides.forEach((x, i) => {
+        const d = el('button', 'rules-dot');
+        d.type = 'button';
+        d.setAttribute('role', 'tab');
+        d.setAttribute('aria-label', `Rule ${i + 1}: ${x.title}`);
+        d.addEventListener('click', () => rulesGo(i));
+        dots.append(d);
+      });
+    }
+    [...dots.children].forEach((d, i) => { d.classList.toggle('is-on', i === rulesAt); d.setAttribute('aria-selected', String(i === rulesAt)); });
+  }
+
+  function rulesGo(i) {
+    const before = rulesAt;
+    rulesAt = i;
+    renderRules();
+    if (rulesAt === before) return;
+    // Keep keyboard focus somewhere useful when an arrow disables itself.
+    const a = document.activeElement;
+    if (a && a.disabled) (rulesAt === 0 ? $('rules-next') : $('rules-prev')).focus();
+  }
+
+  function openRules() {
+    closeOverlays();
+    rulesAt = 0;
+    renderRules();
+    if (!$('dlg-rules').open) $('dlg-rules').showModal();
+    $('rules-next').focus();
+  }
+
   // ---------------------------------------------------------------- sign on
   // An invite code survives the trip to Google and back in localStorage.
   const INVITE_KEY = 'pz_invite';
@@ -1351,7 +1610,7 @@
     del(k) { try { localStorage.removeItem(k); } catch (_) { /* private mode */ } }
   };
   const PANELS = {
-    signin: 'Sign on to Pazhampori chat',
+    signin: 'Sign on to Mysore chat',
     invite: "You're invited",
     finish: 'One last step'
   };
@@ -1386,9 +1645,6 @@
     $('main').hidden = true;
     $('banned').hidden = true;
     $('signon').hidden = false;
-    $('sb-you').hidden = true;
-    $('sb-words').textContent = '';
-    $('sb-conn').textContent = backend.mode === 'demo' ? 'Demo mode: the Google button signs you straight in.' : 'Not connected';
     Object.keys(PANELS).forEach((k) => { $('panel-' + k).hidden = k !== name; });
     $('auth-title').textContent = PANELS[name];
     authMsg(msg && msg.error);
@@ -1408,7 +1664,7 @@
     showPanel('invite', { error });
     st.inviteCode = code;
     $('invite-code-show').textContent = code;
-    $('invite-hello').textContent = "You're invited to Pazhampori chat. Pick a screen name, then join with your Google account.";
+    $('invite-hello').textContent = "You're invited to Mysore chat. Pick a screen name, then join with your Google account.";
     try {
       const state = await backend.checkInvite(code);
       if (state !== 'OK') authMsg(PZ.ERRORS[state] || PZ.ERRORS.INVITE_INVALID);
@@ -1468,7 +1724,7 @@
     $('form-finish').hidden = !code;
     $('finish-text').textContent = code
       ? 'Almost in. Check your screen name and enter.'
-      : "You're signed in, but you're not a member. Pazhampori chat is invite-only: open the invite link a member sent you, then join with Google.";
+      : "You're signed in, but you're not a member. Mysore chat is invite-only: open the invite link a member sent you, then join with Google.";
   }
 
   // ---------------------------------------------------------------- boot
@@ -1537,6 +1793,8 @@
         if ($('dlg-person').open) renderPersonCard();
       },
       friendRequest: (r) => {
+        const known = st.requests.has(r.id);
+        if (!known && r.status === 'pending' && r.to_user === st.meId && PZ.sound) PZ.sound.play('knock');
         for (const [k, v] of st.requests) if (String(k).startsWith('local-') && v.to_user === r.to_user && v.from_user === r.from_user) st.requests.delete(k);
         st.requests.set(r.id, r);
         if (r.status === 'accepted') refreshSocial().then(() => { renderPeople(); if ($('dlg-person').open) renderPersonCard(); });
@@ -1555,6 +1813,7 @@
     if (g) await openRoom(g.id);
     pushPresence();
     ping();
+    if (store.get(RULES_SEEN + id) !== '1' && !document.querySelector('dialog[open]')) openRules();
   }
 
   function wire() {
@@ -1612,14 +1871,65 @@
     $('btn-expand-rooms').addEventListener('click', () => setPanel('rooms', true));
     $('btn-collapse-people').addEventListener('click', () => setPanel('people', false));
     $('btn-expand-people').addEventListener('click', () => setPanel('people', true));
-    $('btn-title-rooms').addEventListener('click', () => { if (isPhone() || document.body.classList.contains('rooms-collapsed')) setPanel('rooms', true); });
+    $('btn-sheet-rooms').addEventListener('click', () => setPanel('rooms', true));
+    $('btn-sheet-people').addEventListener('click', () => setPanel('people', true));
     $('btn-online-people').addEventListener('click', () => { if (isPhone() || document.body.classList.contains('people-collapsed')) setPanel('people', true); });
-    $('sheet-backdrop').addEventListener('click', closeOverlays);
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isPhone() && sheetOpen()) closeOverlays(); });
+    // (The finger that long-pressed a message lifts over the backdrop: don't
+    // let that close the reaction sheet it just opened.)
+    $('sheet-backdrop').addEventListener('click', () => { if (Date.now() - boardOpenedAt > 500) closeOverlays(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+      if (boardFor !== null) closeBoard();
+      else if (isPhone() && sheetOpen()) closeOverlays();
+    });
     swipeToClose($('rooms-panel').querySelector('.panel-head'));
     swipeToClose($('people-panel').querySelector('.people-tabs'));
+    swipeToClose($('react-board').querySelector('.react-board-head'));
     restorePanels();
     $('room-search').addEventListener('input', (e) => { st.search = e.target.value; renderRooms(); });
+    $('people-search').addEventListener('input', (e) => { st.peopleSearch = e.target.value; renderPeople(); });
+
+    // Reaction board: pick one, or click anywhere else to close it.
+    $('react-board').querySelectorAll('.react-row').forEach((b) => {
+      b.addEventListener('click', () => {
+        const id = boardFor;
+        closeBoard();
+        if (id !== null) toggleReaction(id, b.dataset.kind);
+      });
+    });
+    $('react-board').addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      const rows = [...$('react-board').querySelectorAll('.react-row')];
+      const i = rows.indexOf(document.activeElement);
+      rows[(i + (e.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length].focus();
+    });
+    document.addEventListener('pointerdown', (e) => {
+      if (boardFor === null || e.target.closest('#react-board, .react-toggle')) return;
+      if (!$('react-board').classList.contains('is-sheet')) closeBoard(true);
+    });
+    $('messages').addEventListener('scroll', () => { if (boardFor !== null && !$('react-board').classList.contains('is-sheet')) closeBoard(true); }, { passive: true });
+    window.addEventListener('resize', () => { if (boardFor !== null && !$('react-board').classList.contains('is-sheet')) closeBoard(true); });
+
+    // Welcome & rules
+    $('btn-rules').addEventListener('click', openRules);
+    $('rules-close').addEventListener('click', () => $('dlg-rules').close());
+    $('rules-prev').addEventListener('click', () => rulesGo(rulesAt - 1));
+    $('rules-next').addEventListener('click', () => rulesGo(rulesAt + 1));
+    $('dlg-rules').addEventListener('click', (e) => { if (e.target === $('dlg-rules')) $('dlg-rules').close(); });
+    $('dlg-rules').addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') { e.preventDefault(); rulesGo(rulesAt + 1); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); rulesGo(rulesAt - 1); }
+    });
+    $('dlg-rules').addEventListener('close', () => { if (st.meId) store.set(RULES_SEEN + st.meId, '1'); });
+    let swipeX = null;
+    $('rules-card').addEventListener('pointerdown', (e) => { swipeX = e.clientX; });
+    $('rules-card').addEventListener('pointerup', (e) => {
+      if (swipeX === null) return;
+      const dx = e.clientX - swipeX;
+      swipeX = null;
+      if (Math.abs(dx) > 40) rulesGo(rulesAt + (dx < 0 ? 1 : -1));
+    });
 
     $('ptab-all').addEventListener('click', () => setPeopleTab('all'));
     $('ptab-friends').addEventListener('click', () => setPeopleTab('friends'));
@@ -1781,10 +2091,12 @@
       finally { $('invite-new').disabled = false; }
     });
 
-    $('sb-you').addEventListener('click', openProfileDialog);
+    $('you-card').addEventListener('click', openProfileDialog);
     $('form-profile').addEventListener('submit', async (e) => {
       if (!e.submitter || e.submitter.value !== 'save') return;
       e.preventDefault();
+      // Sound is a setting for this device only, so it's kept even if the rest fails.
+      if (PZ.sound && PZ.sound.on !== $('prof-sound').checked) PZ.sound.set($('prof-sound').checked);
       const patch = {
         username: $('prof-username').value.trim(),
         status_text: $('prof-status').value.trim().slice(0, 40),

@@ -1,5 +1,5 @@
 -- ============================================================================
--- Pazhampori chat: database schema
+-- Mysore chat: database schema
 --
 -- Paste this whole file into Supabase > SQL Editor > New query, then Run.
 -- It is safe to run on a fresh project only. The last line prints your first
@@ -124,7 +124,7 @@ create table public.messages (
 create index messages_room_recent on public.messages (room_id, id desc);
 create index messages_user_recent on public.messages (user_id, created_at desc);
 
--- Reactions: one per person per message, 'perfect' (Perfect pazhampori) or
+-- Reactions: one per person per message, 'perfect' (1kg mysore_pak) or
 -- 'stinky' (Stinky kayappam). room_id is copied from the message so the read
 -- rule stays simple. Reactions go when their message goes (e.g. a wipe).
 create table public.message_reactions (

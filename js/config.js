@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Pazhampori chat configuration
+// Mysore chat configuration
 //
 // Paste your Supabase project's URL and "anon public" key here
 // (Supabase > Project Settings > API). The anon key is meant to be public:

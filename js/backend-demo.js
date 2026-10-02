@@ -157,7 +157,7 @@
 
     return {
       mode: 'demo',
-      host: 'irc.pazhampori.example:6667',
+      host: 'irc.mysore.example:6667',
 
       async currentUserId() { return signedIn ? ME : null; },
       onAuthChange() {},

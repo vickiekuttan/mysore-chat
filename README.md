@@ -1,4 +1,4 @@
-# Pazhampori chat
+# Mysore chat
 
 An invite-only chatroom that looks and feels like 1998. One Global chat, groups anyone can make or join, and friend chats that need both people to say yes.
 
@@ -15,7 +15,7 @@ These are enforced by the database itself (`supabase/schema.sql`), so nobody can
 | Images | Allowed in Global chat and groups. After sending one, you can't send anything for 30 seconds |
 | Where cooldowns apply | The image cooldown and flood control always apply in Global chat, and in groups unless an admin switches them off for that group. Friend chats never have them. A cooldown from Global doesn't stop you posting in a group that has them off |
 | The big wipe | When Global chat and all groups together reach 1,000,000 words, every message in them is erased and everyone starts on a blank page. Groups themselves stay. Friend chats are not counted or erased |
-| Reactions | Any message (not notices) can get a **Perfect pazhampori** or a **Stinky kayappam**: one per person, tap again to take it back or pick the other to switch. Hover a message (tap it on a phone) to react; hover the counts to see who. Works in friend chats too |
+| Reactions | Any message (not notices) can get a **1kg mysore_pak** or a **stinky_laddu**: one per person, tap again to take it back or pick the other to switch. On a computer, hover a message and press the arrow that appears; on a phone, press and hold the message. Hover the counts to see who. Works in friend chats too |
 | Friends | Send a request, the other person accepts, then you get a private chat. Up to 200 words per message, no images |
 | Joining | Invite links only. Any member can make one: it works for 7 days, for any number of people, until its creator or an admin switches it off. Up to 5 live links per member |
 | Signing in | Google only. New people get in only by opening an invite link and signing in with Google |
@@ -26,7 +26,7 @@ Every number above lives in the `settings` table. Change it there (Supabase > Ta
 
 - **Click any username** (in Global chat, a group, or the people list) to open their member card. Inside a group, the people list's ALL tab shows only that group's members, and the online count at the top counts only them. From there you can send a friend request, accept one, or open your private chat.
 - **Admins** show as **[OP]**. The first account ever created is the **founder**: an admin nobody can demote or ban.
-- **Admins can:** make someone an admin, make an admin a regular again (including stepping down themselves), ban and unban. These buttons appear on the member card under **Admin tools · whole chat**, and making someone an admin asks you to confirm first. Admins run all of Pazhampori chat; there are no group-only admins.
+- **Admins can:** make someone an admin, make an admin a regular again (including stepping down themselves), ban and unban. These buttons appear on the member card under **Admin tools · whole chat**, and making someone an admin asks you to confirm first. Admins run all of Mysore chat; there are no group-only admins.
 - **Invite to group:** on anyone's member card, admins can invite them to any group, open or locked. They see **invited** next to the group and press **Join room**.
 - **A ban** locks the person out right away: they can't read, post, upload, invite or send friend requests. Their unused invite codes and pending friend requests are deleted. An admin can unban them at any time.
 - **Admins can't be banned directly.** Make them a regular first. The founder can never be banned.
@@ -61,14 +61,14 @@ Download the repo and double-click `index.html`. With no Supabase details in `js
 
 ### 2. Switch off email sign-in
 
-Pazhampori chat is Google-only. In Supabase open **Authentication** > **Sign In / Providers** > **Email** and switch the Email provider **off**, then **Save**. The database also refuses to make a member out of anything but a Google account, so this is a second lock on the same door.
+Mysore chat is Google-only. In Supabase open **Authentication** > **Sign In / Providers** > **Email** and switch the Email provider **off**, then **Save**. The database also refuses to make a member out of anything but a Google account, so this is a second lock on the same door.
 
 ### 3. Switch on Google sign-in
 
 In **Google Cloud Console** ([console.cloud.google.com](https://console.cloud.google.com)):
 
-1. Create a project (any name, e.g. "Pazhampori chat").
-2. Open **Google Auth Platform** (or **APIs & Services** > **OAuth consent screen**) and set it up: app name "Pazhampori chat", your email as support email, audience **External**.
+1. Create a project (any name, e.g. "Mysore chat").
+2. Open **Google Auth Platform** (or **APIs & Services** > **OAuth consent screen**) and set it up: app name "Mysore chat", your email as support email, audience **External**.
 3. Under **Data Access / Scopes**, keep only the basic ones: `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile`.
 4. Under **Audience**, press **Publish app** so it's **In production**. With only those basic scopes Google doesn't require a review, and people don't see a warning ([Google's rules](https://support.google.com/cloud/answer/15549945)). If you leave it in Testing, only 100 people you list by hand can sign in.
 5. Under **Clients** (or **Credentials**), create an **OAuth client ID** of type **Web application**.
@@ -145,8 +145,13 @@ js/backend-demo.js         the pretend server for demo mode
 supabase/schema.sql        tables, rules, permissions (run once in Supabase)
 supabase/migrations/       updates for a database set up from an older schema.sql
 supabase/tests/            automated checks for the rules
-assets/logo*.png           the logo (fritter + lettering) at 1x, 2x and full size
-assets/favicon.png         the browser-tab icon
+js/sound.js                the 8-bit message sounds (made in the browser, no sound files)
+assets/logo-mark.png       the mysore pak next to the name (also the favicon)
+assets/react-*.png         the two reaction pictures, at 2 sizes
+assets/book*.png           the rules button
+assets/rules-banner.jpg    the tea stall in the welcome & rules window
+assets/banner.png          the room banner's background
+assets/fonts/              Geist Pixel, Geist Mono and Coral Pixels (see Credits)
 ```
 
 ## Contributing
@@ -154,6 +159,11 @@ assets/favicon.png         the browser-tab icon
 Issues and pull requests are welcome. If you change a rule, change it in `supabase/schema.sql` first (that's where it is enforced), mirror it in `js/rules.js` and `js/backend-demo.js`, and add a check to `supabase/tests/rules.test.mjs`.
 
 When you change anything in `css/` or `js/`, bump the `?v=` number on the links at the bottom and top of `index.html`. Browsers keep old copies of those files for a few minutes, and a new number makes everyone load the new ones together with the new page.
+
+## Credits
+
+- Fonts: [Geist Pixel and Geist Mono](https://github.com/vercel/geist-font) by Vercel, and [Coral Pixels](https://github.com/tanukifont/Coral-Pixels), all under the SIL Open Font License 1.1 (licences in `assets/fonts/`). Coral Pixels is a colour font; the copy here has its colour layers removed so it draws in one colour.
+- Icons: [Material Symbols](https://github.com/google/material-design-icons) by Google, Apache License 2.0.
 
 ## License
 

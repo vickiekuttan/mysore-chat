@@ -358,7 +358,7 @@ await su(`update profiles set muted_until = null, image_locked_until = null, ban
 const msgG = (await send(B, G, 'rate my fritter')).rows[0].r.id;
 const react = (uid, msg, kind) => as(uid, 'select public.set_reaction($1,$2) r', [msg, kind]);
 const reactionsOn = async (msg) => (await su('select user_id, kind from message_reactions where message_id=$1 order by user_id', [msg])).rows;
-ok('react with Perfect pazhampori', (await react(A, msgG, 'perfect')).rows[0].r === 'perfect');
+ok('react with 1kg mysore_pak', (await react(A, msgG, 'perfect')).rows[0].r === 'perfect');
 ok('others see it', (await as(E, 'select kind from message_reactions where message_id=$1', [msgG])).rows[0]?.kind === 'perfect');
 ok('switching replaces it', (await react(A, msgG, 'stinky')).rows[0].r === 'stinky'
   && (await reactionsOn(msgG)).length === 1 && (await reactionsOn(msgG))[0].kind === 'stinky');
