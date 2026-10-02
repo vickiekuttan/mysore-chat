@@ -164,6 +164,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
   flex-direction: column;
 }
 .chat { position: relative; }
+/* Netlify's free plan can float a "Powered by Netlify" badge in the
+   bottom-right corner, on top of everything. app.js measures it and these
+   make room so it never covers Send or the last person in the list. */
+.chat::after { content: ''; flex: none; height: var(--badge-chat, 0px); background: var(--plum); }
+.people-list { padding-bottom: var(--badge-people, 0px); }
 
 /* Collapsed side panels become thin rails with a button to bring them back */
 .rail {
@@ -744,7 +749,7 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
     top: max(20vh, env(safe-area-inset-top, 0px));
     z-index: 30;
     border-radius: 8px 8px 0 0;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--badge-h, 0px));
     transform: translateY(100%);
     visibility: hidden;
     transition: transform 0.22s ease-out, visibility 0s linear 0.22s;
@@ -768,6 +773,7 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
     transition: opacity 0.22s, visibility 0s;
   }
   .panel-head, .people-tabs, .react-board-head { touch-action: none; }
+  .people-list { padding-bottom: 0; }  /* the sheet itself makes room for the badge */
   .people-search { display: none; }
 
   /* Room banner: rooms button, room name, people button */
@@ -782,7 +788,7 @@ body.is-demo .modem-line::after { content: ' • DEMO MODE'; color: var(--yellow
     border-radius: 8px 8px 0 0;
     border: 1px solid var(--edge); border-bottom: 0;
     box-shadow: none;
-    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--badge-h, 0px));
     animation: sheet-up 0.2s ease-out;
   }
   .react-board.is-sheet .react-board-head { display: grid; place-items: center; height: 22px; }

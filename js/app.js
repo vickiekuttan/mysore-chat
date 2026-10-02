@@ -2164,6 +2164,48 @@
     setInterval(() => { if (entered) ping(); }, 30000);
   }
 
+  // Netlify's free plan can add a "Powered by Netlify" badge: a small frame
+  // fixed to the bottom-right corner, above everything. We can't move it, so
+  // measure it and leave a strip of room wherever it would cover the chat
+  // (the Send button) or the people list. Nothing changes when there's no badge.
+  function makeRoomForHostBadge() {
+    const root = document.documentElement.style;
+    const overlap = (box, b) => {
+      if (!box) return 0;
+      const r = box.getBoundingClientRect();
+      if (!r.width || !r.height || r.right <= b.left || r.left >= b.right || r.bottom <= b.top) return 0;
+      return Math.max(0, Math.round(r.bottom - b.top));
+    };
+    const fit = () => {
+      const f = document.getElementById('nl-badge-frame');
+      const b = f && f.isConnected ? f.getBoundingClientRect() : null;
+      const cs = f && f.isConnected ? getComputedStyle(f) : null;
+      const shown = b && b.width > 0 && b.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden' && b.top < innerHeight;
+      root.setProperty('--badge-h', shown ? Math.round(innerHeight - b.top) + 'px' : '0px');
+      root.setProperty('--badge-chat', shown ? overlap(document.querySelector('.chat'), b) + 'px' : '0px');
+      root.setProperty('--badge-people', shown && !isPhone() ? overlap($('people-panel'), b) + 'px' : '0px');
+    };
+    let raf = 0;
+    const soon = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(fit); };
+    const sizes = new ResizeObserver(soon);
+    const watch = () => {
+      const f = document.getElementById('nl-badge-frame');
+      if (f && !f.dataset.pzWatched) {
+        f.dataset.pzWatched = '1';
+        sizes.observe(f);
+        new MutationObserver(soon).observe(f, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+      }
+      soon();
+    };
+    new MutationObserver(watch).observe(document.body, { childList: true });
+    new MutationObserver(soon).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    sizes.observe(document.querySelector('.chat'));
+    sizes.observe($('people-panel'));
+    window.addEventListener('resize', soon);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', soon);
+    watch();
+  }
+
   function setPeopleTab(tab) {
     st.peopleTab = tab;
     $('ptab-all').classList.toggle('is-active', tab === 'all');
@@ -2175,6 +2217,7 @@
 
   async function start() {
     wire();
+    makeRoomForHostBadge();
     const signInError = signInErrorFromUrl();
     const linkCode = inviteFromUrl();
     if (linkCode) store.set(INVITE_KEY, linkCode);
