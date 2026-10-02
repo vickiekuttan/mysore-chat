@@ -113,6 +113,12 @@
         return out;
       },
       setReaction: (messageId, kind) => rpc('set_reaction', { p_message: messageId, p_kind: kind || null }),
+      // Who wrote a message (null if you can't read it), so the page can tell
+      // you when someone reacts to yours in a room you haven't opened.
+      async messageAuthor(messageId) {
+        const rows = await select(sb.from('messages').select('user_id').eq('id', messageId).limit(1));
+        return rows.length ? rows[0].user_id : null;
+      },
 
       // ------------------------------------------------------------ chatting
       async sendMessage(roomId, body, file) {

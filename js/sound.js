@@ -92,13 +92,19 @@
       [98, 0.25, { to: 49, wave: 'sawtooth' }]], 0.05]
   };
   // Sounds for things other people do. A burst of them is one blip, not a drum roll.
+  // Reactions other people give your messages use the reaction sounds, with
+  // the same brake. (fromOthers = true)
   const INCOMING = { message: 1, ping: 1, knock: 1 };
   let lastClick = 0;
+  let lastReact = 0;
 
-  function play(kind) {
+  function play(kind, fromOthers) {
     if (!on || !SOUNDS[kind]) return;
     const now = Date.now();
-    if (INCOMING[kind]) {
+    if (fromOthers) {
+      if (now - lastReact < 350) return;
+      lastReact = now;
+    } else if (INCOMING[kind]) {
       if (now - last < 350) return;
       last = now;
     }

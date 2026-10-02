@@ -384,6 +384,27 @@
     return new RegExp('@' + p.username + '(?![A-Za-z0-9_])', 'i').test(text);
   }
 
+  // Someone reacted: if it's your message, play the same sound you'd hear
+  // giving that reaction. Messages not loaded here are looked up once.
+  const authors = new Map();
+  async function authorOf(messageId) {
+    for (const list of st.msgs.values()) {
+      const m = list.find((y) => y.id === messageId);
+      if (m) return m.user_id;
+    }
+    if (authors.has(messageId)) return authors.get(messageId);
+    let who = null;
+    try { who = backend.messageAuthor ? await backend.messageAuthor(messageId) : null; } catch (_) { return null; }
+    if (authors.size > 500) authors.clear();
+    authors.set(messageId, who);
+    return who;
+  }
+  async function reactedToYou(messageId, kind) {
+    if (!PZ.sound || !PZ.sound.on) return;
+    if (await authorOf(messageId) !== st.meId) return;
+    PZ.sound.play(kind === 'perfect' ? 'pak' : 'laddu', true);
+  }
+
   // Hold a finger on a message for a moment (without moving) to call fn.
   function longPress(row, fn) {
     let timer = null;
@@ -1807,8 +1828,11 @@
       settings: (sv) => { st.settings = Object.assign(st.settings, sv); renderStatus(); renderComposer(); },
       reaction: (op, x) => {
         if (!x || x.message_id == null || !x.user_id) return;
-        setLocalReaction(x.message_id, x.user_id, op === 'remove' ? null : x.kind);
+        const before = (st.reactions.get(x.message_id) || new Map()).get(x.user_id) || null;
+        const now = op === 'remove' ? null : x.kind;
+        setLocalReaction(x.message_id, x.user_id, now);
         refreshReacts(x.message_id);
+        if (now && now !== before && x.user_id !== st.meId) reactedToYou(x.message_id, now);
       },
       presence: onPresence,
       connection: (c) => { st.conn = c; renderStatus(); }

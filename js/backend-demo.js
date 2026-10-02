@@ -193,6 +193,10 @@
         const want = new Set(ids);
         return reactions.filter((r) => want.has(r.message_id)).map((r) => Object.assign({}, r));
       },
+      async messageAuthor(messageId) {
+        const m = messages.find((x) => x.id === messageId);
+        return m && canRead(m.room_id) ? m.user_id : null;
+      },
       async setReaction(messageId, kind) {
         const m = messages.find((x) => x.id === messageId);
         if (!m) fail('MESSAGE_NOT_FOUND');
@@ -228,6 +232,19 @@
         if (file) { path = ME + '/' + uid(); images.set(path, URL.createObjectURL(file)); }
         const m = add(roomId, ME, text, file ? 'image' : 'text', 0, path);
         emit('message', m);
+        // Now and then someone online reacts to what you said.
+        if (!dm && Math.random() < 0.5) {
+          setTimeout(() => {
+            const r = rooms.find((x) => x.id === m.room_id);
+            const fans = profiles.filter((x) => x.id !== ME && !x.banned_at &&
+              (r.kind === 'global' || memberships.some((y) => y.room_id === r.id && y.user_id === x.id))).map((x) => x.id);
+            const u = fans[Math.floor(Math.random() * fans.length)];
+            if (!u || !messages.includes(m) || reactions.some((r) => r.message_id === m.id && r.user_id === u)) return;
+            const kind = Math.random() < 0.6 ? 'perfect' : 'stinky';
+            reactions.push({ message_id: m.id, user_id: u, kind });
+            emit('reaction', 'set', { message_id: m.id, user_id: u, kind });
+          }, 2000 + Math.random() * 2000);
+        }
         if (cool && file) p.image_locked_until = iso(now() + S.image_lock_seconds * 1000);
         if (cool) {
           const since = now() - S.spam_window_seconds * 1000;
