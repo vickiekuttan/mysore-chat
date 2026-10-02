@@ -683,6 +683,7 @@
         const g = globalRoom();
         handleWipe({ id: 'wipe-' + res.id, room_id: g && g.id, user_id: null, kind: 'system', body: 'WIPE', created_at: new Date().toISOString() });
       } else {
+        if (PZ.sound) PZ.sound.play('send');
         addMessage({ id: res.id, room_id: r.id, user_id: st.meId, kind: file ? 'image' : 'text', body: text,
           image_path: res.path || null, word_count: words, created_at: new Date().toISOString() });
         if (r.kind !== 'dm') st.settings.total_words = Number(st.settings.total_words) + words;
@@ -1100,6 +1101,7 @@
   }
 
   function showBanned() {
+    if ($('banned').hidden && PZ.sound) PZ.sound.play('banned');
     entered = false;
     ['toolbar', 'main', 'signon'].forEach((x) => { $(x).hidden = true; });
     document.querySelectorAll('dialog[open]').forEach((d) => d.close());
@@ -1912,6 +1914,15 @@
     $('messages').addEventListener('scroll', () => { if (boardFor !== null && !$('react-board').classList.contains('is-sheet')) closeBoard(true); }, { passive: true });
     window.addEventListener('resize', () => { if (boardFor !== null && !$('react-board').classList.contains('is-sheet')) closeBoard(true); });
 
+    // Every button ticks. Reactions and Send have sounds of their own.
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('button, label.img-btn');
+      if (!b || b.disabled || b.closest('.react-row, .react-chip, #btn-send') || !PZ.sound) return;
+      PZ.sound.play('click');
+    }, true);
+    // The sound switch in your profile works straight away (it's for this device only).
+    $('prof-sound').addEventListener('change', (e) => { if (PZ.sound) PZ.sound.set(e.target.checked); });
+
     // Welcome & rules
     $('btn-rules').addEventListener('click', openRules);
     $('rules-close').addEventListener('click', () => $('dlg-rules').close());
@@ -2096,8 +2107,6 @@
     $('form-profile').addEventListener('submit', async (e) => {
       if (!e.submitter || e.submitter.value !== 'save') return;
       e.preventDefault();
-      // Sound is a setting for this device only, so it's kept even if the rest fails.
-      if (PZ.sound && PZ.sound.on !== $('prof-sound').checked) PZ.sound.set($('prof-sound').checked);
       const patch = {
         username: $('prof-username').value.trim(),
         status_text: $('prof-status').value.trim().slice(0, 40),

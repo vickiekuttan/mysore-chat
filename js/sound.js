@@ -82,17 +82,29 @@
     laddu: [[[294, 0.13, { to: 277, wave: 'sawtooth' }], [0, 0.03], [262, 0.13, { to: 247, wave: 'sawtooth' }], [0, 0.03],
       [110, 0.36, { to: 70, wave: 'sawtooth', trem: 28 }]], 0.05],
     // you take your reaction back
-    unreact: [[[660, 0.03], [440, 0.05]], 0.035]
+    unreact: [[[660, 0.03], [440, 0.05]], 0.035],
+    // any button: a tiny tick
+    click: [[[1760, 0.025]], 0.035],
+    // your message went out: a quick rising bloop
+    send: [[[523, 0.05, { to: 1047 }], [1568, 0.06]], 0.04],
+    // you've been banned: a "game over" slide and a thud
+    banned: [[[784, 0.12], [740, 0.12], [698, 0.12], [659, 0.5, { vib: true }], [0, 0.06],
+      [98, 0.25, { to: 49, wave: 'sawtooth' }]], 0.05]
   };
   // Sounds for things other people do. A burst of them is one blip, not a drum roll.
   const INCOMING = { message: 1, ping: 1, knock: 1 };
+  let lastClick = 0;
 
   function play(kind) {
     if (!on || !SOUNDS[kind]) return;
+    const now = Date.now();
     if (INCOMING[kind]) {
-      const now = Date.now();
       if (now - last < 350) return;
       last = now;
+    }
+    if (kind === 'click') {
+      if (now - lastClick < 40) return;
+      lastClick = now;
     }
     try { tune(SOUNDS[kind][0], SOUNDS[kind][1]); } catch (_) { /* no sound is fine */ }
   }
