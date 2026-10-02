@@ -1,0 +1,4 @@
+# Netlify: there is nothing to build. Publish the whole folder as it is.
+# (Netlify already tells browsers to check for a newer copy on each visit.)
+[build]
+  publish = "."

@@ -72,7 +72,7 @@ In **Google Cloud Console** ([console.cloud.google.com](https://console.cloud.go
 3. Under **Data Access / Scopes**, keep only the basic ones: `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile`.
 4. Under **Audience**, press **Publish app** so it's **In production**. With only those basic scopes Google doesn't require a review, and people don't see a warning ([Google's rules](https://support.google.com/cloud/answer/15549945)). If you leave it in Testing, only 100 people you list by hand can sign in.
 5. Under **Clients** (or **Credentials**), create an **OAuth client ID** of type **Web application**.
-   - **Authorized JavaScript origins:** your site, e.g. `https://vickiekuttan.github.io`
+   - **Authorized JavaScript origins:** your site, e.g. `https://mysore-chat.netlify.app`
    - **Authorized redirect URIs:** the **Callback URL** shown on Supabase's Google provider page. It looks like `https://YOUR-PROJECT.supabase.co/auth/v1/callback`
 6. Copy the **Client ID** and **Client secret**.
 
@@ -87,18 +87,23 @@ The anon key is designed to be public. The rules in the database are what keep t
 
 ### 5. Publish it
 
-**GitHub Pages** (free, same place as the code):
+**Netlify** (free; this is where Mysore chat lives, at `https://mysore-chat.netlify.app`):
 
-1. In the repo, go to **Settings** > **Pages**.
-2. Under **Build and deployment**, choose **Deploy from a branch**, branch **main**, folder **/ (root)**, then **Save**.
-3. After a minute the page shows your site's address: `https://vickiekuttan.github.io/Pazhampori-Chat/`.
-4. Back in Supabase: **Authentication** > **URL Configuration**. Set **Site URL** to that address, and add the same address under **Redirect URLs**. Without this, Google sign-in sends people to the wrong place.
+1. Sign up at [netlify.com](https://www.netlify.com) with your GitHub account.
+2. **Add new site** > **Import an existing project** > **GitHub**, and pick this repo.
+3. Leave the build settings as they are (`netlify.toml` in the repo already says there's nothing to build and to publish the whole folder), then **Deploy**.
+4. Under **Site configuration** > **Change site name**, pick the name you want in the address (`mysore-chat` gives `mysore-chat.netlify.app`).
+5. Back in Supabase: **Authentication** > **URL Configuration**. Set **Site URL** to that address, and add `https://YOUR-SITE.netlify.app/**` under **Redirect URLs**. Without this, Google sign-in sends people to the wrong place.
+
+Every push to `main` puts the new version online within a minute or so.
+
+(GitHub Pages works too: **Settings** > **Pages** > **Deploy from a branch**, branch **main**, folder **/ (root)**. Your address is then `https://YOUR-NAME.github.io/REPO-NAME/`; put that in Supabase instead.)
 
 ### 6. Join as the founder
 
 Open your site with your first invite code on the end:
 
-`https://vickiekuttan.github.io/Pazhampori-Chat/#invite=YOUR_CODE`
+`https://mysore-chat.netlify.app/#invite=YOUR_CODE`
 
 Pick your screen name and join with Google. Then press **Invite** in the toolbar to make links for your friends.
 
